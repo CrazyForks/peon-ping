@@ -26,11 +26,11 @@ PEON_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/peon-ping"
 PACKS_DIR="$HOME/.openpeon/packs"
 
 # --- Colors ---
-BOLD='\033[1m' DIM='\033[2m' RED='\033[31m' GREEN='\033[32m' YELLOW='\033[33m' RESET='\033[0m'
+BOLD=$'\033[1m' DIM=$'\033[2m' RED=$'\033[31m' GREEN=$'\033[32m' YELLOW=$'\033[33m' RESET=$'\033[0m'
 
-info()  { printf "${GREEN}>${RESET} %s\n" "$*"; }
-warn()  { printf "${YELLOW}!${RESET} %s\n" "$*"; }
-error() { printf "${RED}x${RESET} %s\n" "$*" >&2; }
+info()  { printf "%s>%s %s\n" "$GREEN" "$RESET" "$*"; }
+warn()  { printf "%s!%s %s\n" "$YELLOW" "$RESET" "$*"; }
+error() { printf "%sx%s %s\n" "$RED" "$RESET" "$*" >&2; }
 
 # --- Uninstall ---
 if [ "${1:-}" = "--uninstall" ]; then
@@ -162,9 +162,9 @@ fi
 echo ""
 info "${BOLD}peon-ping installed for OpenCode!${RESET}"
 echo ""
-printf "  ${DIM}Plugin:${RESET}  %s\n" "$OPENCODE_PLUGINS_DIR/peon-ping.ts"
-printf "  ${DIM}Config:${RESET}  %s\n" "$PEON_CONFIG_DIR/config.json"
-printf "  ${DIM}Packs:${RESET}   %s\n" "$PACKS_DIR/"
+printf "  %sPlugin:%s  %s\n" "$DIM" "$RESET" "$OPENCODE_PLUGINS_DIR/peon-ping.ts"
+printf "  %sConfig:%s  %s\n" "$DIM" "$RESET" "$PEON_CONFIG_DIR/config.json"
+printf "  %sPacks:%s   %s\n" "$DIM" "$RESET" "$PACKS_DIR/"
 echo ""
 info "Restart OpenCode to activate. Your Peon awaits."
 info "Install more packs: https://openpeon.com/packs"
