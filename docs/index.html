@@ -1384,7 +1384,11 @@ html { scrollbar-width: thin; scrollbar-color: var(--wc3-card-border) var(--wc3-
   <div class="picker-filters">
     <button class="picker-filter active" data-lang="all">All</button>
     <button class="picker-filter" data-lang="en">English</button>
-    <button class="picker-filter" data-lang="other">Other Languages</button>
+    <button class="picker-filter" data-lang="ru">Russian</button>
+    <button class="picker-filter" data-lang="es">Spanish</button>
+    <button class="picker-filter" data-lang="fr">French</button>
+    <button class="picker-filter" data-lang="cs">Czech</button>
+    <button class="picker-filter" data-lang="other">Other</button>
   </div>
 
   <div class="picker-grid" id="pickerGrid">
@@ -1681,10 +1685,11 @@ async function loadRegistry() {
 function renderPicker() {
   const grid = document.getElementById('pickerGrid');
   grid.innerHTML = '';
+  const knownLangs = ['en','ru','es','fr','cs'];
   const filtered = registryPacks.filter(p => {
-    if (activeFilter === 'en') return p.language === 'en';
-    if (activeFilter === 'other') return p.language !== 'en';
-    return true;
+    if (activeFilter === 'all') return true;
+    if (activeFilter === 'other') return !knownLangs.includes(p.language);
+    return p.language === activeFilter;
   });
   filtered.forEach(pack => {
     const card = document.createElement('div');
