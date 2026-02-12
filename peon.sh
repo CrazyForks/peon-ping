@@ -54,11 +54,26 @@ send_notification() {
   local msg="$1" title="$2" color="${3:-red}"
   case "$PLATFORM" in
     mac)
-      nohup osascript - "$msg" "$title" >/dev/null 2>&1 <<'APPLESCRIPT' &
+      # Use terminal-native escape sequences where supported (shows terminal icon).
+      # Falls back to osascript which attributes notifications to Script Editor.
+      case "${TERM_PROGRAM:-}" in
+        iTerm.app)
+          # iTerm2 OSC 9 — notification with iTerm2 icon
+          printf '\e]9;%s\007' "$title: $msg" 2>/dev/null
+          ;;
+        kitty)
+          # Kitty OSC 99
+          printf '\e]99;i=peon:d=0;%s\e\\' "$title: $msg" 2>/dev/null
+          ;;
+        *)
+          # Terminal.app, Warp, Ghostty, etc. — no native escape; use osascript
+          nohup osascript - "$msg" "$title" >/dev/null 2>&1 <<'APPLESCRIPT' &
 on run argv
   display notification (item 1 of argv) with title (item 2 of argv)
 end run
 APPLESCRIPT
+          ;;
+      esac
       ;;
     wsl)
       # Map color name to RGB
