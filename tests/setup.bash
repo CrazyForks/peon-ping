@@ -197,6 +197,8 @@ run_peon() {
   echo "$json" | bash "$PEON_SH" 2>"$TEST_DIR/stderr.log"
   PEON_EXIT=$?
   PEON_STDERR=$(cat "$TEST_DIR/stderr.log" 2>/dev/null)
+  # Wait for background nohup afplay to write its log
+  sleep 0.3
 }
 
 # Helper: check if afplay was called
