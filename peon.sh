@@ -543,10 +543,10 @@ for d in sorted(os.listdir(packs_dir)):
         if [ -z "$PACK_ARG" ]; then
           echo "Usage: peon packs use <name>" >&2; exit 1
         fi
-        python3 -c "
+        PACK_ARG="$PACK_ARG" python3 -c "
 import json, os, glob, sys
 config_path = '$CONFIG'
-pack_arg = '$PACK_ARG'
+pack_arg = os.environ.get('PACK_ARG', '')
 packs_dir = '$PEON_DIR/packs'
 names = sorted([
     d for d in os.listdir(packs_dir)
@@ -613,13 +613,13 @@ print(f'peon-ping: switched to {next_pack} ({display})')
       remove)
         REMOVE_ARG="${3:-}"
         if [ -n "$REMOVE_ARG" ]; then
-          PACKS_TO_REMOVE=$(python3 -c "
+          PACKS_TO_REMOVE=$(REMOVE_ARG="$REMOVE_ARG" python3 -c "
 import json, os, sys
 
 config_path = '$CONFIG'
 peon_dir = '$PEON_DIR'
 packs_dir = os.path.join(peon_dir, 'packs')
-remove_arg = '$REMOVE_ARG'
+remove_arg = os.environ.get('REMOVE_ARG', '')
 
 try:
     cfg = json.load(open(config_path))
