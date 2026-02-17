@@ -643,11 +643,7 @@ chmod +x "$INSTALL_DIR/scripts/hook-handle-use.sh" 2>/dev/null || true
 # --- Install skill (slash command) ---
 SKILL_DIR="$BASE_DIR/skills/peon-ping-toggle"
 mkdir -p "$SKILL_DIR"
-if [ "$LOCAL_MODE" = true ]; then
-  SKILL_HOOK_CMD="bash $HOME/.claude/hooks/peon-ping/peon.sh"
-else
-  SKILL_HOOK_CMD="bash $INSTALL_DIR/peon.sh"
-fi
+SKILL_HOOK_CMD="bash $INSTALL_DIR/peon.sh"
 if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/skills/peon-ping-toggle" ]; then
   cp "$SCRIPT_DIR/skills/peon-ping-toggle/SKILL.md" "$SKILL_DIR/"
   if [ "$LOCAL_MODE" = true ]; then
