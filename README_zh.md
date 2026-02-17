@@ -115,6 +115,9 @@ peon pause                # 静音
 peon resume               # 取消静音
 peon status               # 查看暂停或活动状态
 peon packs list           # 列出已安装的语音包
+peon packs list --registry # 浏览注册表中所有可用语音包
+peon packs install <p1,p2> # 从注册表安装语音包
+peon packs install --all  # 从注册表安装所有语音包
 peon packs use <name>     # 切换到指定语音包
 peon packs next           # 切换到下一个语音包
 peon packs remove <p1,p2> # 移除指定语音包
@@ -492,6 +495,9 @@ peon mobile test          # 发送测试通知
 peon packs use glados             # 切换到指定语音包
 peon packs next                   # 切换到下一个语音包
 peon packs list                   # 列出所有已安装语音包
+peon packs list --registry        # 浏览所有可用语音包
+peon packs install glados,murloc  # 安装指定语音包
+peon packs install --all          # 安装注册表中所有语音包
 ```
 
 想添加自己的语音包？参见 [openpeon.com/create 完整指南](https://openpeon.com/create) 或 [CONTRIBUTING.md](CONTRIBUTING.md)。

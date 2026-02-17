@@ -979,7 +979,7 @@ export default function LandingPage() {
               <strong><span className="pack-count">{packCount}</span> packs and counting!</strong> You&apos;re only seeing a few above &mdash; there are many more including GLaDOS, StarCraft Terran units, Czech, Spanish &amp; Russian &amp; Polish Warcraft packs, and others.
             </p>
             <p>
-              Run <code>peon packs list</code> to see them all, or <a href="https://openpeon.com/packs">browse the full catalog at openpeon.com</a>.
+              Run <code>peon packs list --registry</code> to see what&apos;s available, <code>peon packs install</code> to add more, or <a href="https://openpeon.com/packs">browse the full catalog at openpeon.com</a>.
             </p>
             <p className="contribute-ideas">
               <strong>Want to add your own?</strong> Any game, any character &mdash; create a GitHub repo with your sounds, register it, and it&apos;s available to everyone. <a href="https://openpeon.com/create">Create a pack &rarr;</a>

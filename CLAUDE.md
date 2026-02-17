@@ -54,8 +54,9 @@ peon-ping is part of the [PeonPing](https://github.com/PeonPing) org:
 - **`peon.sh`** — Main hook script (Unix/WSL2). Receives JSON event data on stdin, routes events via an embedded Python block that handles config loading, event parsing, sound selection, and state management in a single invocation. Shell code then handles async audio playback (`nohup` + background processes), desktop notifications, and mobile push notifications.
 - **`peon.ps1`** — Main hook script (native Windows). Pure PowerShell implementation with same event flow as `peon.sh` but without Python dependency. Handles JSON parsing, config/state management, CESP category mapping, sound selection (no-repeat logic), and async audio playback via `win-play.ps1`.
 - **`relay.sh`** — HTTP relay server for SSH/devcontainer/Codespaces. Runs on the local machine, receives audio and notification requests from remote sessions.
-- **`install.sh`** — Installer (Unix/WSL2). Fetches pack registry from GitHub Pages, downloads selected packs, registers hooks in `~/.claude/settings.json`. Falls back to a hardcoded pack list if registry is unreachable.
+- **`install.sh`** — Installer (Unix/WSL2). Fetches pack registry from GitHub Pages, registers hooks in `~/.claude/settings.json`, and delegates pack downloads to `pack-download.sh`. Falls back to a hardcoded pack list if registry is unreachable.
 - **`install.ps1`** — Installer (native Windows). PowerShell version with registry fetching, pack downloads, hook registration, CLI shortcut creation (`peon.cmd` in `~/.local/bin`), and skills installation. Supports `-Packs` param for selective installs and `-All` for full registry.
+- **`scripts/pack-download.sh`** — Shared pack download engine used by both `install.sh` and `peon packs install`. Handles registry fetching, pack validation, tarball downloads, and extraction.
 - **`scripts/win-play.ps1`** — Windows audio playback backend. Async MP3/WAV player using `MediaPlayer` class with volume control.
 - **`config.json`** — Default configuration template.
 

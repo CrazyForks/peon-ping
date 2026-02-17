@@ -115,6 +115,9 @@ peon pause                # Mute sounds
 peon resume               # Unmute sounds
 peon status               # Check if paused or active
 peon packs list           # List installed sound packs
+peon packs list --registry # Browse all available packs in the registry
+peon packs install <p1,p2> # Install packs from the registry
+peon packs install --all  # Install all packs from the registry
 peon packs use <name>     # Switch to a specific pack
 peon packs next           # Cycle to the next pack
 peon packs remove <p1,p2> # Remove specific packs
@@ -492,6 +495,9 @@ Install all with `--all`, or switch packs anytime:
 peon packs use glados             # switch to a specific pack
 peon packs next                   # cycle to the next pack
 peon packs list                   # list all installed packs
+peon packs list --registry        # browse all available packs
+peon packs install glados,murloc  # install specific packs
+peon packs install --all          # install every pack in the registry
 ```
 
 Want to add your own pack? See the [full guide at openpeon.com/create](https://openpeon.com/create) or [CONTRIBUTING.md](CONTRIBUTING.md).
