@@ -478,19 +478,20 @@ function playSound(
       )
       proc.unref()
     } else {
-      try {
-        const proc = Bun.spawn(["paplay", filePath], {
-          stdout: "ignore",
-          stderr: "ignore",
-        })
-        proc.unref()
-      } catch {
+      // Mirror peon.sh priority chain with per-backend volume scaling
+      const paVol = Math.round(Math.max(0, Math.min(65536, volume * 65536)))
+      const backends: string[][] = [
+        ["pw-play", "--volume", String(volume), filePath],
+        ["paplay", `--volume=${paVol}`, filePath],
+        ["aplay", "-q", filePath],
+      ]
+      for (const args of backends) {
         try {
-          const proc = Bun.spawn(["aplay", filePath], {
-            stdout: "ignore",
-            stderr: "ignore",
-          })
+          const which = Bun.spawnSync(["which", args[0]], { stdout: "pipe", stderr: "ignore" })
+          if (which.exitCode !== 0) continue
+          const proc = Bun.spawn(args, { stdout: "ignore", stderr: "ignore" })
           proc.unref()
+          break
         } catch {}
       }
     }
