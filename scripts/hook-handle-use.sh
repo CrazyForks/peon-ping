@@ -42,8 +42,8 @@ if ! echo "$PROMPT" | grep -qE '^\s*/peon-ping-use\s+\S+'; then
   exit 0
 fi
 
-# Extract pack name from command
-PACK_NAME=$(echo "$PROMPT" | sed -E 's/^\s*\/peon-ping-use\s+(\S+).*/\1/')
+# Extract pack name from command (POSIX classes required; macOS BSD sed does not support \s/\S)
+PACK_NAME=$(echo "$PROMPT" | sed -E 's/^[[:space:]]*\/peon-ping-use[[:space:]]+([^[:space:]]+).*/\1/')
 log "matched pack=$PACK_NAME sessionId=$SESSION_ID"
 
 # Safe charset: letters, numbers, underscore, hyphen (prevents injection and path traversal)

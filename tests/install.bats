@@ -122,8 +122,10 @@ s = json.load(open('$TEST_HOME/.claude/settings.json'))
 hooks = s.get('hooks', {})
 for event in ['SessionStart', 'UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest']:
     assert event in hooks, f'{event} not in hooks'
-    found = any('peon.sh' in h.get('command','') for entry in hooks[event] for h in entry.get('hooks',[]))
-    assert found, f'peon.sh not registered for {event}'
+    # UserPromptSubmit uses hook-handle-use.sh; all others use peon.sh
+    expected = 'hook-handle-use.sh' if event == 'UserPromptSubmit' else 'peon.sh'
+    found = any(expected in h.get('command','') for entry in hooks[event] for h in entry.get('hooks',[]))
+    assert found, f'{expected} not registered for {event}'
 print('OK')
 "
 }
@@ -209,8 +211,10 @@ s = json.load(open('$TEST_HOME/.claude/settings.json'))
 hooks = s.get('hooks', {})
 for event in ['SessionStart', 'UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest']:
     assert event in hooks, f'{event} not in hooks'
-    found = any('peon.sh' in h.get('command','') for entry in hooks[event] for h in entry.get('hooks',[]))
-    assert found, f'peon.sh not registered for {event}'
+    # UserPromptSubmit uses hook-handle-use.sh; all others use peon.sh
+    expected = 'hook-handle-use.sh' if event == 'UserPromptSubmit' else 'peon.sh'
+    found = any(expected in h.get('command','') for entry in hooks[event] for h in entry.get('hooks',[]))
+    assert found, f'{expected} not registered for {event}'
 print('OK')
 "
 }
