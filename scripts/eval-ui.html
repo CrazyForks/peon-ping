@@ -333,6 +333,7 @@
         render();
         if (!data.busy) {
           setBusy(false);
+          applyClaudeAvailability(!!data.claude_available);
           statusHide();
         }
       }).catch(function () {});
