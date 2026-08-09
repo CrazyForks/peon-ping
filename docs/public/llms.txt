@@ -178,9 +178,15 @@ View logs with `peon logs` (last 50 lines of today), `peon logs --last N` (last 
 
 ## Claude Code Skills
 
-Four skills are installed alongside peon-ping for use inside Claude Code sessions:
+Seven skills are installed alongside peon-ping for use inside Claude Code sessions:
 
+**User-facing skills:**
 - `/peon-ping-toggle` — Mute/unmute sounds for the current session
 - `/peon-ping-config` — Modify any setting (volume, packs, categories, etc.)
 - `/peon-ping-use <pack>` — Assign a specific pack to the current agent session (session_override mode)
 - `/peon-ping-log <n> <exercise>` — Log exercise reps to the Peon Trainer (e.g. `/peon-ping-log 25 pushups`)
+- `/peon-ping-rename <name>` — Give the current Claude Code session a custom name shown in notification titles and terminal tab title
+
+**Internal skills (eval gate flow):**
+- `peon-ping-create-pack` — Invoked by `peon create` to draft a brand-new pack and open the eval gate; not meant to be run directly
+- `peon-ping-remix` — Invoked by `peon eval` reroll to rewrite a sound with a caption-driven tweak; not meant to be run directly
