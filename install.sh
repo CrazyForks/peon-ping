@@ -878,6 +878,7 @@ install_skill peon-ping-config
 install_skill peon-ping-use
 install_skill peon-ping-log
 install_skill peon-ping-remix
+install_skill peon-ping-create-pack
 
 # --- Install trainer voice packs ---
 TRAINER_DIR="$INSTALL_DIR/trainer"

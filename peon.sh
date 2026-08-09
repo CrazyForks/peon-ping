@@ -3908,6 +3908,73 @@ for i, s in enumerate(sounds):
       fi
     done
     exit 0 ;;
+  create)
+    # Parse --name/--flavor/--vibe flags (mirrors the `packs use` flag-parsing
+    # loop: iterate the args, case-match each one, fall through on the rest).
+    CREATE_NAME=""
+    CREATE_FLAVOR=""
+    CREATE_VIBE=""
+    shift
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --name) CREATE_NAME="${2:-}"; shift 2 ;;
+        --flavor) CREATE_FLAVOR="${2:-}"; shift 2 ;;
+        --vibe) CREATE_VIBE="${2:-}"; shift 2 ;;
+        *)
+          echo "Usage: peon create [--name <name>] [--flavor sfx|voice] [--vibe \"<text>\"]" >&2
+          exit 1 ;;
+      esac
+    done
+
+    # Interactive prompts for whatever flags were not supplied.
+    if [ -z "$CREATE_NAME" ]; then
+      read -r -p "Pack name (lowercase letters/digits/-/_, e.g. calm-focus): " CREATE_NAME
+    fi
+    if ! [[ "$CREATE_NAME" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+      echo "Error: name must match ^[a-z0-9][a-z0-9_-]*\$ (lowercase letters, digits, - and _; can't start with - or _)." >&2
+      exit 1
+    fi
+
+    if [ -z "$CREATE_FLAVOR" ]; then
+      read -r -p "Flavor (sfx = wordless tones, voice = spoken lines): " CREATE_FLAVOR
+    fi
+    if [ "$CREATE_FLAVOR" != "sfx" ] && [ "$CREATE_FLAVOR" != "voice" ]; then
+      echo "Error: flavor must be \"sfx\" or \"voice\"." >&2
+      exit 1
+    fi
+
+    if [ -z "$CREATE_VIBE" ]; then
+      read -r -p "One-line vibe description: " CREATE_VIBE
+    fi
+    if [ -z "$CREATE_VIBE" ]; then
+      echo "Error: a vibe description is required." >&2
+      exit 1
+    fi
+
+    CREATE_DRAFT_ROOT="$HOME/.peon-ping/drafts"
+    if [ -d "$CREATE_DRAFT_ROOT/$CREATE_NAME" ]; then
+      echo "Error: a draft named \"$CREATE_NAME\" already exists at $CREATE_DRAFT_ROOT/$CREATE_NAME" >&2
+      echo "Run: peon eval $CREATE_NAME" >&2
+      exit 1
+    fi
+
+    CREATE_CLAUDE_BIN="${PEON_CLAUDE_BIN:-claude}"
+    CREATE_PROMPT="Use the peon-ping-create-pack skill to draft a pack: name=$CREATE_NAME flavor=$CREATE_FLAVOR vibe=$CREATE_VIBE draft_root=$CREATE_DRAFT_ROOT. Follow the skill exactly."
+    echo "peon-ping: drafting pack \"$CREATE_NAME\" ($CREATE_FLAVOR) ..."
+    "$CREATE_CLAUDE_BIN" -p "$CREATE_PROMPT"
+    CREATE_RC=$?
+    if [ $CREATE_RC -ne 0 ]; then
+      echo "Error: pack drafting failed (exit $CREATE_RC)." >&2
+      exit $CREATE_RC
+    fi
+    if [ ! -f "$CREATE_DRAFT_ROOT/$CREATE_NAME/openpeon.json" ]; then
+      echo "Error: drafting finished but no draft was written to $CREATE_DRAFT_ROOT/$CREATE_NAME" >&2
+      exit 1
+    fi
+
+    # Hand off to the eval code path so creation NEVER ends with an installed
+    # pack — the draft always has to clear the eval gate.
+    exec "$0" eval "$CREATE_NAME" ;;
   eval)
     EVAL_ARG="${2:-}"
     if [ -z "$EVAL_ARG" ]; then
@@ -4241,6 +4308,9 @@ Commands:
   preview --list       List all categories and sound counts in the active pack
                        Categories: session.start, task.acknowledge, task.complete,
                        task.error, input.required, resource.limit, user.spam
+  create               Draft a new sound pack from a vibe (prompts for name/flavor/vibe;
+                       renders via your Claude Code, then hands off to eval)
+  create --name <n> --flavor sfx|voice --vibe "<text>"  Non-interactive create
   eval <name-or-path>  Listen to and approve a draft pack (rerolls via your Claude Code)
   debug on             Enable debug logging
   debug off            Disable debug logging
