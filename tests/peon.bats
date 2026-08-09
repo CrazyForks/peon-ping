@@ -1733,6 +1733,17 @@ json.dump(cfg, open('$TEST_DIR/config.json', 'w'))
   [ "$active" = "peon" ]
 }
 
+@test "packs use refuses a draft-stamped pack" {
+  mkdir -p "$TEST_DIR/packs/draftling/sounds"
+  cat > "$TEST_DIR/packs/draftling/openpeon.json" <<'EOF'
+{"cesp_version":"1.0","name":"draftling","version":"0.0.1","x_openpeon_draft":true,"categories":{}}
+EOF
+  run bash "$PEON_SH" packs use draftling
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"unapproved draft"* ]]
+  [[ "$output" == *"peon eval draftling"* ]]
+}
+
 # ============================================================
 # packs use --install
 # ============================================================

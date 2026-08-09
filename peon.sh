@@ -2435,6 +2435,15 @@ if pack_arg not in names:
     print(f'Error: pack \"{pack_arg}\" not found.', file=sys.stderr)
     print(f'Available packs: {\", \".join(names)}', file=sys.stderr)
     sys.exit(1)
+manifest_path = os.path.join(packs_dir, pack_arg, 'openpeon.json')
+if os.path.exists(manifest_path):
+    try:
+        m = json.load(open(manifest_path))
+    except Exception:
+        m = {}
+    if m.get('x_openpeon_draft'):
+        print(f'Error: pack \"{pack_arg}\" is an unapproved draft — run: peon eval {pack_arg}', file=sys.stderr)
+        sys.exit(1)
 try:
     cfg = json.load(open(config_path))
 except Exception:
