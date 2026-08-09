@@ -66,7 +66,10 @@ def peak_db(wav_path):
     r = subprocess.run(["ffmpeg", "-i", wav_path, "-af", "volumedetect", "-f", "null", "-"],
                        capture_output=True, text=True)
     m = re.search(r"max_volume:\s*(-?[\d.]+) dB", r.stderr)
-    return float(m.group(1)) if m else 0.0
+    if not m:
+        sys.stderr.write("could not parse max_volume from ffmpeg volumedetect output\n")
+        sys.exit(1)
+    return float(m.group(1))
 
 def main():
     ap = argparse.ArgumentParser()
@@ -85,7 +88,16 @@ def main():
         write_mock(job["out"]); return
     key = read_api_key()
     for suffix in ("", RETRY_SUFFIX):
-        to_wav(fetch_mp3(job, key, suffix if job["type"] == "sfx" else ""), job["out"])
+        try:
+            mp3_bytes = fetch_mp3(job, key, suffix if job["type"] == "sfx" else "")
+        except urllib.error.URLError as e:
+            sys.stderr.write("ElevenLabs request failed: %s\n" % e.reason)
+            sys.exit(1)
+        try:
+            to_wav(mp3_bytes, job["out"])
+        except subprocess.CalledProcessError as e:
+            sys.stderr.write("ffmpeg conversion failed\n")
+            sys.exit(1)
         if peak_db(job["out"]) >= SILENCE_DB:
             return
         if job["type"] == "tts":
