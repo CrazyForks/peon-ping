@@ -29,6 +29,12 @@ EOF
 
 teardown() { kill "$SERVER_PID" 2>/dev/null || true; rm -rf "$TMP"; }
 
+@test "GET / serves the eval UI" {
+  run curl -sf "http://127.0.0.1:$PORT/"
+  [[ "$output" == *"Reroll whole pack"* ]]
+  [[ "$output" == *"Approve pack"* ]]
+}
+
 @test "GET /api/pack returns manifest summary" {
   run curl -sf "http://127.0.0.1:$PORT/api/pack"
   [ "$status" -eq 0 ]
