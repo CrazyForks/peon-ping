@@ -121,3 +121,53 @@ teardown() { kill "$SERVER_PID" 2>/dev/null || true; rm -rf "$TMP"; }
   grep -q '"failed"' "$TMP/sse2.txt"
   grep -q 'boom' "$TMP/sse2.txt"
 }
+
+@test "concurrent reroll POSTs: exactly one 202, rest 409, one job file" {
+  # NOTE: wait on the explicit PIDs, not a bare `wait` — a bare `wait` blocks on
+  # every background job in this shell, including setup()'s long-lived SERVER_PID
+  # (eval-server.py runs serve_forever() until SIGTERM), which would hang forever.
+  pids=()
+  for i in $(seq 1 10); do
+    curl -s -o "$TMP/body_$i.txt" -w "%{http_code}" -X POST \
+        -d '{"scope":"pack","caption":"softer"}' \
+        "http://127.0.0.1:$PORT/api/reroll" > "$TMP/code_$i.txt" &
+    pids+=("$!")
+  done
+  for pid in "${pids[@]}"; do wait "$pid"; done
+  count_202=0
+  count_409=0
+  for i in $(seq 1 10); do
+    code="$(cat "$TMP/code_$i.txt")"
+    [ "$code" = "202" ] && count_202=$((count_202 + 1))
+    [ "$code" = "409" ] && count_409=$((count_409 + 1))
+  done
+  [ "$count_202" -eq 1 ]
+  [ "$count_409" -eq 9 ]
+  for _ in $(seq 1 50); do [ -d "$DRAFT/jobs" ] && [ -n "$(ls -A "$DRAFT/jobs" 2>/dev/null)" ] && break; sleep 0.1; done
+  job_count="$(ls "$DRAFT/jobs" | grep -c '\.json$')"
+  [ "$job_count" -eq 1 ]
+}
+
+@test "SIGTERM during a job terminates the running claude process tree" {
+  cat > "$TMP/slow-claude" <<'EOF'
+#!/usr/bin/env bash
+echo $$ > "$SLOW_PID_FILE"
+sleep 30
+EOF
+  chmod +x "$TMP/slow-claude"
+  SLOW_PID_FILE="$TMP/slow.pid" python3 "$BATS_TEST_DIRNAME/../scripts/eval-server.py" \
+      --draft "$DRAFT" --claude-bin "$TMP/slow-claude" --no-open --print-port > "$TMP/port3.txt" &
+  SERVER_PID3=$!
+  for _ in $(seq 1 50); do grep -q PORT= "$TMP/port3.txt" 2>/dev/null && break; sleep 0.1; done
+  PORT3="$(sed -n 's/^PORT=//p' "$TMP/port3.txt")"
+  run curl -sf -X POST -d '{"scope":"pack","caption":"x"}' "http://127.0.0.1:$PORT3/api/reroll"
+  [[ "$output" == *'"job"'* ]]
+  for _ in $(seq 1 50); do [ -f "$TMP/slow.pid" ] && break; sleep 0.1; done
+  SLOW_PID="$(cat "$TMP/slow.pid")"
+  kill -0 "$SLOW_PID"   # sanity: it's actually running
+  kill -TERM "$SERVER_PID3"
+  for _ in $(seq 1 20); do kill -0 "$SLOW_PID" 2>/dev/null || break; sleep 0.1; done
+  run kill -0 "$SLOW_PID"
+  [ "$status" -ne 0 ]
+  kill "$SERVER_PID3" 2>/dev/null || true
+}

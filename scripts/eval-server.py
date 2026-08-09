@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """peon eval server: same-origin UI + API for judging a draft pack. Stdlib only."""
-import argparse, json, os, sys, threading, queue, subprocess, time, webbrowser, shutil, signal
+import argparse, itertools, json, os, sys, threading, queue, subprocess, time, webbrowser, shutil, signal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DRAFT = None          # draft dir (abs)
 CLAUDE_BIN = "claude"
 EVENTS = []           # list of queue.Queue, one per connected SSE client
 JOBS = queue.Queue()  # reroll jobs, drained by one worker (Task 7)
-STATE = {"busy": False}
+STATE = {"busy": False, "proc": None}
+BUSY_LOCK = threading.Lock()   # guards the check-and-set of STATE["busy"] on accept
+JOB_COUNTER = itertools.count()  # collision-proof job id suffix
 SERVER = None         # HTTP server instance, set in main()
 
 def manifest():
@@ -30,8 +32,29 @@ def pack_summary():
             "eval_log_entries": entries, "busy": STATE["busy"],
             "claude_available": shutil.which(CLAUDE_BIN) is not None}
 
+def _kill_proc_tree(proc, sig):
+    """Send `sig` to proc's whole process group (it was started with start_new_session=True)
+    so a spawned shell script's own children die too, not just the immediate child."""
+    if proc is None:
+        return
+    try:
+        pgid = os.getpgid(proc.pid)
+        os.killpg(pgid, sig)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            if sig == signal.SIGKILL:
+                proc.kill()
+            else:
+                proc.terminate()
+        except Exception:
+            pass
+
 def shutdown_handler(signum, frame):
-    """Handle SIGTERM by gracefully shutting down the server."""
+    """Handle SIGTERM by gracefully shutting down the server. Also terminates any
+    in-flight `claude -p` child (and its process tree) so it doesn't get orphaned."""
+    proc = STATE.get("proc")
+    if proc is not None and proc.poll() is None:
+        _kill_proc_tree(proc, signal.SIGTERM)
     if SERVER:
         threading.Thread(target=SERVER.shutdown).start()
 
@@ -42,7 +65,6 @@ def broadcast(ev):
 def worker():
     while True:
         job_id, job = JOBS.get()
-        STATE["busy"] = True
         broadcast({"type": "started", "job": job_id})
         try:
             jobs_dir = os.path.join(DRAFT, "jobs")
@@ -52,21 +74,26 @@ def worker():
                 json.dump(job, f, indent=1)
             prompt = ("Use the peon-ping-remix skill to execute the reroll job at %s. "
                       "Follow the skill exactly." % job_path)
+            proc = subprocess.Popen([CLAUDE_BIN, "-p", prompt],
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                     text=True, start_new_session=True)
+            STATE["proc"] = proc
             try:
-                r = subprocess.run([CLAUDE_BIN, "-p", prompt], capture_output=True, text=True, timeout=1800)
-            except subprocess.TimeoutExpired as e:
-                detail = ((e.stderr or b"") if isinstance(e.stderr, (bytes, bytearray)) else (e.stderr or "")) or (e.stdout or "")
-                if isinstance(detail, (bytes, bytearray)):
-                    detail = detail.decode(errors="replace")
-                broadcast({"type": "failed", "job": job_id, "detail": (detail or "timed out")[-500:]})
-                continue
-            if r.returncode == 0:
+                out, err = proc.communicate(timeout=1800)
+                rc = proc.returncode
+            except subprocess.TimeoutExpired:
+                _kill_proc_tree(proc, signal.SIGKILL)
+                out, err = proc.communicate()
+                rc = -1
+                err = err or out or "timed out after 1800s"
+            if rc == 0:
                 broadcast({"type": "done", "job": job_id})
             else:
-                broadcast({"type": "failed", "job": job_id, "detail": (r.stderr or r.stdout)[-500:]})
+                broadcast({"type": "failed", "job": job_id, "detail": (err or out or "")[-500:]})
         except Exception as e:
             broadcast({"type": "failed", "job": job_id, "detail": str(e)[-500:]})
         finally:
+            STATE["proc"] = None
             STATE["busy"] = False
 
 class Handler(BaseHTTPRequestHandler):
@@ -152,19 +179,23 @@ class Handler(BaseHTTPRequestHandler):
         category = body.get("category")
         index = body.get("index")
         caption = body.get("caption")
+        m = manifest()
         if scope == "sound":
-            m = manifest()
             cats = m.get("categories", {})
             if category not in cats:
                 return self._json({"error": "unknown category"}, 400)
             sounds = cats[category].get("sounds", [])
             if not isinstance(index, int) or isinstance(index, bool) or index < 0 or index >= len(sounds):
                 return self._json({"error": "index out of range"}, 400)
-        if STATE["busy"]:
-            return self._json({"error": "busy"}, 409)
-        job_id = "%d" % int(time.time() * 1000)
+        # Atomic check-and-set: only one concurrent request can flip busy False->True.
+        # The worker no longer sets STATE["busy"]; it only clears it after the terminal event.
+        with BUSY_LOCK:
+            if STATE["busy"]:
+                return self._json({"error": "busy"}, 409)
+            STATE["busy"] = True
+        job_id = "%d-%d" % (int(time.time() * 1000), next(JOB_COUNTER))
         job = {"scope": scope, "category": category, "index": index, "caption": caption,
-               "draft_dir": DRAFT, "pack_name": manifest().get("name")}
+               "draft_dir": DRAFT, "pack_name": m.get("name")}
         JOBS.put((job_id, job))
         return self._json({"job": job_id}, 202)
 
