@@ -681,6 +681,9 @@ else
   curl -fsSL "$REPO_BASE/scripts/cmux-status-presentation.sh" -o "$INSTALL_DIR/scripts/cmux-status-presentation.sh" 2>/dev/null || true
   curl -fsSL "$REPO_BASE/scripts/cmux-workspace-field.sh" -o "$INSTALL_DIR/scripts/cmux-workspace-field.sh" 2>/dev/null || true
   curl -fsSL "$REPO_BASE/scripts/tts-native.sh" -o "$INSTALL_DIR/scripts/tts-native.sh" 2>/dev/null || true
+  curl -fsSL "$REPO_BASE/scripts/eval-server.py" -o "$INSTALL_DIR/scripts/eval-server.py" 2>/dev/null || true
+  curl -fsSL "$REPO_BASE/scripts/pack-render.py" -o "$INSTALL_DIR/scripts/pack-render.py" 2>/dev/null || true
+  curl -fsSL "$REPO_BASE/scripts/eval-ui.html" -o "$INSTALL_DIR/scripts/eval-ui.html" 2>/dev/null || true
   mkdir -p "$INSTALL_DIR/docs"
   curl -fsSL "$REPO_BASE/docs/peon-icon.png" -o "$INSTALL_DIR/docs/peon-icon.png" 2>/dev/null || true
   if [ "$UPDATING" = false ]; then

@@ -3972,6 +3972,11 @@ print('EVAL_LOCK_PORT=' + str(lock.get('port', '')))
       exit 1
     }
 
+    # Export PEON_DIR so the eval server (and the `claude -p` reroll child it
+    # spawns headlessly) can resolve scripts/pack-render.py via $PEON_DIR/scripts
+    # (see skills/peon-ping-remix/SKILL.md step 5) instead of guessing.
+    export PEON_DIR
+
     EVAL_CMD=(python3 "$EVAL_SERVER" --draft "$DRAFT_DIR")
     [ "${PEON_EVAL_NO_OPEN:-0}" = "1" ] && EVAL_CMD+=(--no-open)
 

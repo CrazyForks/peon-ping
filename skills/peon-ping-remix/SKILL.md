@@ -1,6 +1,6 @@
 ---
 name: peon-ping-remix
-description: 'Execute one PeonPing reroll job — invoked headlessly by the peon eval server as: "Use the peon-ping-remix skill to execute the reroll job at <path>". Reads the job JSON (scope, category, index, caption), rewrites the affected sound prompt(s) to honor the caption, re-renders via scripts/pack-render.py, and logs the change to eval-log.json.'
+description: 'Internal — invoked headlessly by the peon eval server; humans should run `peon eval <pack>` instead. Execute one PeonPing reroll job — invoked headlessly by the peon eval server as: "Use the peon-ping-remix skill to execute the reroll job at <path>". Reads the job JSON (scope, category, index, caption), rewrites the affected sound prompt(s) to honor the caption, re-renders via scripts/pack-render.py, and logs the change to eval-log.json.'
 ---
 
 # peon-ping-remix
@@ -8,6 +8,14 @@ description: 'Execute one PeonPing reroll job — invoked headlessly by the peon
 You are executing ONE reroll job for a draft PeonPing pack. Work only inside
 the job's `draft_dir`. Do not touch any other directory, do not install
 anything, do not commit anything.
+
+## If invoked without a job-file path
+
+This skill is internal: it is only ever invoked headlessly by the peon eval
+server with a job-file path. If you were invoked WITHOUT one (a human ran
+this directly), do nothing except tell them this skill runs automatically
+from the eval server and that they should run `peon eval <pack>` instead.
+Do not touch any files. Exit.
 
 ## Procedure
 
@@ -33,8 +41,9 @@ anything, do not commit anything.
    on silent/failed renders — if it fails, STOP and exit nonzero yourself
    with its stderr; do not half-update the log.
    (Resolve `<peon-ping>` as the scripts directory next to the running peon
-   install: `$PEON_DIR/scripts` when present, else the repo checkout you
-   were invoked from.)
+   install, in order: `$PEON_DIR/scripts` when set, else
+   `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/peon-ping/scripts`, else the
+   repo checkout you were invoked from.)
 6. After ALL targets render successfully: update `prompts.json` with the new
    inputs, and append one entry per rendered sound to
    `<draft_dir>/eval-log.json` (create as `[]` if missing):
