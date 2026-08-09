@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """peon eval server: same-origin UI + API for judging a draft pack. Stdlib only."""
-import argparse, json, os, sys, threading, queue, subprocess, time, webbrowser, shutil
+import argparse, json, os, sys, threading, queue, subprocess, time, webbrowser, shutil, signal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DRAFT = None          # draft dir (abs)
@@ -8,6 +8,7 @@ CLAUDE_BIN = "claude"
 EVENTS = []           # list of queue.Queue, one per connected SSE client
 JOBS = queue.Queue()  # reroll jobs, drained by one worker (Task 7)
 STATE = {"busy": False}
+SERVER = None         # HTTP server instance, set in main()
 
 def manifest():
     with open(os.path.join(DRAFT, "openpeon.json")) as f:
@@ -28,6 +29,11 @@ def pack_summary():
             "draft": bool(m.get("x_openpeon_draft")), "categories": cats,
             "eval_log_entries": entries, "busy": STATE["busy"],
             "claude_available": shutil.which(CLAUDE_BIN) is not None}
+
+def shutdown_handler(signum, frame):
+    """Handle SIGTERM by gracefully shutting down the server."""
+    if SERVER:
+        threading.Thread(target=SERVER.shutdown).start()
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):  # quiet
@@ -54,7 +60,12 @@ class Handler(BaseHTTPRequestHandler):
             p = os.path.join(DRAFT, "sounds", base)
             if not os.path.isfile(p):
                 return self._json({"error": "not found"}, 404)
-            data = open(p, "rb").read()
+            # Resolve symlinks and verify target is within sounds dir
+            real_p = os.path.realpath(p)
+            sounds_dir = os.path.realpath(os.path.join(DRAFT, "sounds"))
+            if not real_p.startswith(sounds_dir + os.sep) and real_p != sounds_dir:
+                return self._json({"error": "not found"}, 404)
+            data = open(real_p, "rb").read()
             self.send_response(200)
             self.send_header("content-type", "audio/wav")
             self.send_header("content-length", str(len(data)))
@@ -76,7 +87,7 @@ class Handler(BaseHTTPRequestHandler):
         return self._json({"error": "not found"}, 404)  # replaced in Task 7/8
 
 def main():
-    global DRAFT, CLAUDE_BIN
+    global DRAFT, CLAUDE_BIN, SERVER
     ap = argparse.ArgumentParser()
     ap.add_argument("--draft", required=True)
     ap.add_argument("--port", type=int, default=0)
@@ -89,17 +100,18 @@ def main():
     if not os.path.exists(os.path.join(DRAFT, "openpeon.json")):
         sys.stderr.write("no openpeon.json in %s\n" % DRAFT)
         sys.exit(1)
-    srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-    port = srv.server_address[1]
+    SERVER = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    port = SERVER.server_address[1]
     lock = os.path.join(DRAFT, ".eval-server.json")
     with open(lock, "w") as f:
         json.dump({"port": port, "pid": os.getpid()}, f)
+    signal.signal(signal.SIGTERM, shutdown_handler)
     if args.print_port:
         print("PORT=%d" % port, flush=True)
     if not args.no_open:
         webbrowser.open("http://127.0.0.1:%d/" % port)
     try:
-        srv.serve_forever()
+        SERVER.serve_forever()
     finally:
         try:
             os.unlink(lock)

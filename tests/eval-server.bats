@@ -42,3 +42,15 @@ teardown() { kill "$SERVER_PID" 2>/dev/null || true; rm -rf "$TMP"; }
   run cat "$DRAFT/.eval-server.json"
   [[ "$output" == *"\"port\": $PORT"* ]]
 }
+
+@test "GET /sounds blocks symlink escape" {
+  ln -s /tmp/.outside-secret.txt "$DRAFT/sounds/escape.wav"
+  run curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/sounds/escape.wav"
+  [[ "$output" == "404" ]]
+}
+
+@test "lockfile is removed on SIGTERM" {
+  kill -TERM "$SERVER_PID"
+  sleep 0.5
+  [ ! -f "$DRAFT/.eval-server.json" ]
+}
