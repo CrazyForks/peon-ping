@@ -139,6 +139,7 @@ class Handler(BaseHTTPRequestHandler):
             if not os.path.isdir(DRAFT):
                 return self._json({"error": "not found"}, 404)
             base = self.path[len("/sounds/"):]
+            base = base.split("?", 1)[0]  # strip cache-busting query string before any checks
             if "/" in base or ".." in base or not base.endswith(".wav"):
                 return self._json({"error": "not found"}, 404)
             p = os.path.join(DRAFT, "sounds", base)

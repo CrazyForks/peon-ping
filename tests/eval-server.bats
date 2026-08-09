@@ -56,6 +56,12 @@ teardown() { kill "$SERVER_PID" 2>/dev/null || true; rm -rf "$TMP"; }
   [[ "$output" == *"\"port\": $PORT"* ]]
 }
 
+@test "GET /sounds strips cache-busting query string" {
+  run curl -sf -o "$TMP/got-q.wav" "http://127.0.0.1:$PORT/sounds/done.wav?t=123"
+  [ "$status" -eq 0 ]
+  head -c4 "$TMP/got-q.wav" | grep -q RIFF
+}
+
 @test "GET /sounds blocks symlink escape" {
   ln -s /tmp/.outside-secret.txt "$DRAFT/sounds/escape.wav"
   run curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/sounds/escape.wav"

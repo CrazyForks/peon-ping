@@ -62,6 +62,7 @@
 
   var packData = null;       // last /api/pack response
   var pendingReroll = null;  // {category, index} for an in-flight scope:'sound' reroll, else null
+  var eventSource = null;    // live SSE connection, closed on approve success
 
   var packnameEl = document.getElementById("packname");
   var rerollPackBtn = document.getElementById("reroll-pack");
@@ -105,28 +106,35 @@
     }
   }
 
-  function postReroll(payload, onAccepted) {
-    fetch("/api/reroll", {
+  // POSTs a reroll job. Resolves to true if the server accepted it (202), false on
+  // any 409/4xx/network failure (status text already shown to the user either way).
+  function postReroll(payload) {
+    return fetch("/api/reroll", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload)
     }).then(function (res) {
       if (res.status === 409) {
         statusShow("one reroll at a time");
-        return;
+        return false;
       }
       if (!res.ok) {
         return res.json().catch(function () { return {}; }).then(function (body) {
           statusShow("reroll failed: " + (body.error || res.status));
+          return false;
         });
       }
-      onAccepted();
+      return true;
     }).catch(function () {
       statusShow("reroll request failed");
+      return false;
     });
   }
 
-  function buildCaptionRow(placeholder, onGo, goLabel, goClass) {
+  // doReroll(caption) must return a Promise<boolean> (true = accepted). The Go button
+  // disables synchronously at click time and only re-enables on a non-accepted result;
+  // on accept the input is cleared and the box closes.
+  function buildCaptionRow(placeholder, doReroll, goLabel, goClass) {
     var box = document.createElement("div");
     box.className = "caption-box";
     var input = document.createElement("input");
@@ -135,7 +143,17 @@
     var go = document.createElement("button");
     go.className = goClass;
     go.textContent = goLabel;
-    go.addEventListener("click", function () { onGo(input.value); });
+    go.addEventListener("click", function () {
+      go.disabled = true;
+      doReroll(input.value).then(function (accepted) {
+        if (accepted) {
+          input.value = "";
+          box.classList.remove("open");
+        } else {
+          go.disabled = false;
+        }
+      });
+    });
     box.appendChild(input);
     box.appendChild(go);
     return box;
@@ -170,13 +188,11 @@
     var captionBox = buildCaptionRow(
       "why? e.g. too harsh, want something softer",
       function (caption) {
-        postReroll(
-          { scope: "sound", category: category, index: index, caption: caption },
-          function () {
-            pendingReroll = { category: category, index: index };
-            captionBox.classList.remove("open");
-          }
-        );
+        return postReroll({ scope: "sound", category: category, index: index, caption: caption })
+          .then(function (accepted) {
+            if (accepted) pendingReroll = { category: category, index: index };
+            return accepted;
+          });
       },
       "Go",
       "caption-go-btn"
@@ -270,6 +286,8 @@
         });
       }
       return res.json().then(function (body) {
+        // The eval session is over server-side too — stop listening before tearing the page down.
+        if (eventSource) { eventSource.close(); eventSource = null; }
         showSuccessScreen(body.approved, body.installed);
       });
     }).catch(function () {
@@ -278,8 +296,8 @@
   }
 
   function connectEvents() {
-    var source = new EventSource("/api/events");
-    source.onmessage = function (ev) {
+    eventSource = new EventSource("/api/events");
+    eventSource.onmessage = function (ev) {
       var data;
       try { data = JSON.parse(ev.data); } catch (e) { return; }
       if (data.type === "started") {
@@ -297,12 +315,27 @@
             }
           }
           setBusy(false);
+          applyClaudeAvailability(!!packData.claude_available);
           statusHide();
         });
       } else if (data.type === "failed") {
         statusShow("Reroll failed: " + (data.detail || "unknown error"));
         setBusy(false);
+        applyClaudeAvailability(!!(packData && packData.claude_available));
       }
+    };
+    // The connection can drop (server restart, network blip) between events. A done/failed
+    // fired in that gap would otherwise leave the UI stuck showing "Rerolling…" forever, so
+    // resync busy state from the source of truth once per drop.
+    eventSource.onerror = function () {
+      fetch("/api/pack").then(function (res) { return res.json(); }).then(function (data) {
+        packData = data;
+        render();
+        if (!data.busy) {
+          setBusy(false);
+          statusHide();
+        }
+      }).catch(function () {});
     };
   }
 
@@ -311,13 +344,16 @@
   });
 
   packCaptionGo.addEventListener("click", function () {
-    postReroll(
-      { scope: "pack", caption: packCaptionText.value },
-      function () {
+    packCaptionGo.disabled = true;
+    postReroll({ scope: "pack", caption: packCaptionText.value }).then(function (accepted) {
+      if (accepted) {
         pendingReroll = null;
+        packCaptionText.value = "";
         packCaptionBox.classList.remove("open");
+      } else {
+        packCaptionGo.disabled = false;
       }
-    );
+    });
   });
 
   approveBtn.addEventListener("click", approve);
