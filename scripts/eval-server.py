@@ -130,8 +130,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/api/pack":
+            # DRAFT may have been moved away by a completed approve; a late poll
+            # in the ~1s window before shutdown must get a clean 404, not a traceback.
+            if not os.path.isdir(DRAFT):
+                return self._json({"error": "not found"}, 404)
             return self._json(pack_summary())
         if self.path.startswith("/sounds/"):
+            if not os.path.isdir(DRAFT):
+                return self._json({"error": "not found"}, 404)
             base = self.path[len("/sounds/"):]
             if "/" in base or ".." in base or not base.endswith(".wav"):
                 return self._json({"error": "not found"}, 404)
@@ -164,9 +170,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path == "/api/reroll":
             return self._reroll()
-        return self._json({"error": "not found"}, 404)  # replaced in Task 8
+        if self.path == "/api/approve":
+            return self._approve()
+        return self._json({"error": "not found"}, 404)
 
     def _reroll(self):
+        # DRAFT may have been moved away by a completed approve; a late/duplicate
+        # request in the ~1s window before shutdown must get a clean 404, not a traceback.
+        if not os.path.isdir(DRAFT):
+            return self._json({"error": "not found"}, 404)
         length = int(self.headers.get("content-length", 0))
         raw = self.rfile.read(length) if length else b""
         try:
@@ -198,6 +210,55 @@ class Handler(BaseHTTPRequestHandler):
                "draft_dir": DRAFT, "pack_name": m.get("name")}
         JOBS.put((job_id, job))
         return self._json({"job": job_id}, 202)
+
+    def _approve(self):
+        """The only door out of draft state. Strips the draft stamp, moves the pack
+        to the approved dir, optionally installs it, and schedules the eval session's
+        own shutdown. Uses the same BUSY_LOCK check-and-set discipline as _reroll so
+        an approve racing a reroll accept (or a second approve) can't interleave."""
+        with BUSY_LOCK:
+            if STATE["busy"]:
+                return self._json({"error": "busy"}, 409)
+            STATE["busy"] = True
+        ok = False
+        try:
+            length = int(self.headers.get("content-length", 0))
+            raw = self.rfile.read(length) if length else b""
+            try:
+                body = json.loads(raw) if raw else {}
+            except json.JSONDecodeError:
+                return self._json({"error": "invalid json"}, 400)
+            m = manifest()
+            m.pop("x_openpeon_draft", None)
+            name = m.get("name") or os.path.basename(DRAFT)
+            approved_root = os.environ.get("PEON_APPROVED_DIR",
+                                            os.path.expanduser("~/.peon-ping/packs"))
+            final = os.path.join(approved_root, name)
+            if os.path.exists(final):
+                return self._json({"error": "exists", "path": final}, 409)
+            with open(os.path.join(DRAFT, "openpeon.json"), "w") as f:
+                json.dump(m, f, indent=2)
+            shutil.rmtree(os.path.join(DRAFT, "jobs"), ignore_errors=True)
+            try:
+                os.unlink(os.path.join(DRAFT, ".eval-server.json"))
+            except OSError:
+                pass
+            os.makedirs(approved_root, exist_ok=True)
+            shutil.move(DRAFT, final)
+            installed = False
+            if body.get("install"):
+                peon_dir = os.environ.get("PEON_DIR", os.path.expanduser("~/.claude/hooks/peon-ping"))
+                shutil.copytree(final, os.path.join(peon_dir, "packs", name), dirs_exist_ok=True)
+                installed = True
+            ok = True
+            # The eval session is over — no further requests are expected.
+            threading.Timer(1.0, self.server.shutdown).start()
+            return self._json({"approved": final, "installed": installed})
+        finally:
+            # DRAFT still exists on any non-success path (busy/exists/bad-json/error):
+            # release the lock so a retry isn't stuck behind a phantom "busy".
+            if not ok:
+                STATE["busy"] = False
 
 def main():
     global DRAFT, CLAUDE_BIN, SERVER

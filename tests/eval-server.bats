@@ -171,3 +171,86 @@ EOF
   [ "$status" -ne 0 ]
   kill "$SERVER_PID3" 2>/dev/null || true
 }
+
+@test "approve strips stamp, moves pack, shuts down" {
+  APPROVED="$TMP/approved"
+  # PEON_APPROVED_DIR must be in the SERVER's env, not just the test's — start a
+  # dedicated server instance, following the pattern the failed-claude test uses.
+  PEON_APPROVED_DIR="$APPROVED" python3 "$BATS_TEST_DIRNAME/../scripts/eval-server.py" \
+      --draft "$DRAFT" --claude-bin "$TMP/fake-claude" --no-open --print-port > "$TMP/port4.txt" &
+  SERVER_PID4=$!
+  for _ in $(seq 1 50); do grep -q PORT= "$TMP/port4.txt" 2>/dev/null && break; sleep 0.1; done
+  PORT4="$(sed -n 's/^PORT=//p' "$TMP/port4.txt")"
+  run curl -sf -X POST -d '{"install":false}' "http://127.0.0.1:$PORT4/api/approve"
+  [[ "$output" == *'"approved"'* ]]
+  [[ "$output" == *'"installed": false'* ]]
+  [ -f "$APPROVED/testpack/openpeon.json" ]
+  ! grep -q x_openpeon_draft "$APPROVED/testpack/openpeon.json"
+  [ ! -d "$APPROVED/testpack/jobs" ]
+  [ ! -f "$APPROVED/testpack/.eval-server.json" ]
+  [ ! -d "$DRAFT" ] || [ ! -f "$DRAFT/openpeon.json" ]
+  sleep 1.5
+  run curl -s -o /dev/null -w "%{http_code}" --max-time 2 "http://127.0.0.1:$PORT4/api/pack"
+  [[ "$output" != "200" ]]
+  kill "$SERVER_PID4" 2>/dev/null || true
+}
+
+@test "approve with install:true copies the pack into PEON_DIR" {
+  APPROVED="$TMP/approved"
+  INSTALLED="$TMP/installed"
+  PEON_APPROVED_DIR="$APPROVED" PEON_DIR="$INSTALLED" \
+      python3 "$BATS_TEST_DIRNAME/../scripts/eval-server.py" \
+      --draft "$DRAFT" --claude-bin "$TMP/fake-claude" --no-open --print-port > "$TMP/port5.txt" &
+  SERVER_PID5=$!
+  for _ in $(seq 1 50); do grep -q PORT= "$TMP/port5.txt" 2>/dev/null && break; sleep 0.1; done
+  PORT5="$(sed -n 's/^PORT=//p' "$TMP/port5.txt")"
+  run curl -sf -X POST -d '{"install":true}' "http://127.0.0.1:$PORT5/api/approve"
+  [[ "$output" == *'"approved"'* ]]
+  [[ "$output" == *'"installed": true'* ]]
+  [ -f "$APPROVED/testpack/openpeon.json" ]
+  [ -f "$INSTALLED/packs/testpack/openpeon.json" ]
+  ! grep -q x_openpeon_draft "$INSTALLED/packs/testpack/openpeon.json"
+  kill "$SERVER_PID5" 2>/dev/null || true
+}
+
+@test "approve returns 409 exists when the target already exists" {
+  APPROVED="$TMP/approved"
+  mkdir -p "$APPROVED/testpack"
+  PEON_APPROVED_DIR="$APPROVED" python3 "$BATS_TEST_DIRNAME/../scripts/eval-server.py" \
+      --draft "$DRAFT" --claude-bin "$TMP/fake-claude" --no-open --print-port > "$TMP/port6.txt" &
+  SERVER_PID6=$!
+  for _ in $(seq 1 50); do grep -q PORT= "$TMP/port6.txt" 2>/dev/null && break; sleep 0.1; done
+  PORT6="$(sed -n 's/^PORT=//p' "$TMP/port6.txt")"
+  run curl -s -o "$TMP/approve-exists.json" -w "%{http_code}" -X POST -d '{"install":false}' \
+      "http://127.0.0.1:$PORT6/api/approve"
+  [[ "$output" == "409" ]]
+  grep -q '"error": "exists"' "$TMP/approve-exists.json"
+  [ -d "$DRAFT" ]
+  # server is still alive (not the shutdown path) — a normal GET still works
+  run curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT6/api/pack"
+  [[ "$output" == "200" ]]
+  kill "$SERVER_PID6" 2>/dev/null || true
+}
+
+@test "approve returns 409 busy while a reroll job is in flight" {
+  APPROVED="$TMP/approved"
+  PEON_APPROVED_DIR="$APPROVED" python3 "$BATS_TEST_DIRNAME/../scripts/eval-server.py" \
+      --draft "$DRAFT" --claude-bin "$TMP/fake-claude" --no-open --print-port > "$TMP/port7.txt" &
+  SERVER_PID7=$!
+  for _ in $(seq 1 50); do grep -q PORT= "$TMP/port7.txt" 2>/dev/null && break; sleep 0.1; done
+  PORT7="$(sed -n 's/^PORT=//p' "$TMP/port7.txt")"
+  curl -sf -N "http://127.0.0.1:$PORT7/api/events" > "$TMP/sse7.txt" &
+  SSE_PID7=$!
+  sleep 0.2
+  run curl -sf -X POST -d '{"scope":"pack","caption":"softer"}' \
+      "http://127.0.0.1:$PORT7/api/reroll"
+  [[ "$output" == *'"job"'* ]]
+  for _ in $(seq 1 50); do grep -q '"started"' "$TMP/sse7.txt" 2>/dev/null && break; sleep 0.1; done
+  run curl -s -o /dev/null -w "%{http_code}" -X POST -d '{"install":false}' \
+      "http://127.0.0.1:$PORT7/api/approve"
+  [[ "$output" == "409" ]]
+  [ -d "$DRAFT" ]
+  for _ in $(seq 1 50); do grep -q '"done"' "$TMP/sse7.txt" 2>/dev/null && break; sleep 0.1; done
+  kill "$SSE_PID7" 2>/dev/null || true
+  kill "$SERVER_PID7" 2>/dev/null || true
+}
