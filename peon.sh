@@ -3908,6 +3908,79 @@ for i, s in enumerate(sounds):
       fi
     done
     exit 0 ;;
+  eval)
+    EVAL_ARG="${2:-}"
+    if [ -z "$EVAL_ARG" ]; then
+      echo "Usage: peon eval <name-or-path>" >&2
+      exit 1
+    fi
+
+    DRAFT_DIR=""
+    if [ -d "$EVAL_ARG" ] && [ -f "$EVAL_ARG/openpeon.json" ]; then
+      # (1) An existing directory path with its own manifest — eval it in place.
+      DRAFT_DIR="$(cd "$EVAL_ARG" && pwd)"
+    elif [ -f "$HOME/.peon-ping/drafts/$EVAL_ARG/openpeon.json" ]; then
+      # (2) An already-drafted pack, resolved by name.
+      DRAFT_DIR="$HOME/.peon-ping/drafts/$EVAL_ARG"
+    elif [ -f "$PEON_DIR/packs/$EVAL_ARG/openpeon.json" ]; then
+      # (3) An installed pack — re-draft: copy it into ~/.peon-ping/drafts and
+      # stamp the COPY as a draft. The installed original is left untouched.
+      DRAFT_DIR="$HOME/.peon-ping/drafts/$EVAL_ARG"
+      EVAL_SRC="$PEON_DIR/packs/$EVAL_ARG" EVAL_DEST="$DRAFT_DIR" python3 -c "
+import json, os, shutil, sys
+
+src = os.environ['EVAL_SRC']
+dest = os.environ['EVAL_DEST']
+if os.path.exists(dest):
+    print(f'Error: a draft named \"{os.path.basename(dest)}\" already exists at {dest}', file=sys.stderr)
+    sys.exit(1)
+os.makedirs(os.path.dirname(dest), exist_ok=True)
+shutil.copytree(src, dest)
+manifest_path = os.path.join(dest, 'openpeon.json')
+m = json.load(open(manifest_path))
+m['x_openpeon_draft'] = True
+json.dump(m, open(manifest_path, 'w'), indent=2)
+" || exit 1
+    else
+      echo "Error: pack or draft \"$EVAL_ARG\" not found." >&2
+      exit 1
+    fi
+
+    # Live-lockfile reuse: if an eval server is already running for this draft
+    # (PID still alive), print its URL instead of starting a second one.
+    EVAL_LOCK="$DRAFT_DIR/.eval-server.json"
+    if [ -f "$EVAL_LOCK" ]; then
+      _eval_lock_out="$(EVAL_LOCK_PATH="$EVAL_LOCK" python3 -c "
+import json, os
+try:
+    lock = json.load(open(os.environ['EVAL_LOCK_PATH']))
+except Exception:
+    lock = {}
+print('EVAL_LOCK_PID=' + str(lock.get('pid', '')))
+print('EVAL_LOCK_PORT=' + str(lock.get('port', '')))
+")"
+      safe_eval_python "$_eval_lock_out" || true
+      if [ -n "${EVAL_LOCK_PID:-}" ] && [ -n "${EVAL_LOCK_PORT:-}" ] && kill -0 "$EVAL_LOCK_PID" 2>/dev/null; then
+        echo "peon-ping: eval server already running for this draft"
+        echo "http://127.0.0.1:${EVAL_LOCK_PORT}/"
+        exit 0
+      fi
+    fi
+
+    EVAL_SERVER="$(find_bundled_script "eval-server.py")" || {
+      echo "Error: eval-server.py not found. Run 'peon update' or reinstall peon-ping to fix." >&2
+      exit 1
+    }
+
+    EVAL_CMD=(python3 "$EVAL_SERVER" --draft "$DRAFT_DIR")
+    [ "${PEON_EVAL_NO_OPEN:-0}" = "1" ] && EVAL_CMD+=(--no-open)
+
+    if [ "${PEON_EVAL_DRY_RUN:-0}" = "1" ]; then
+      printf '%s\n' "${EVAL_CMD[*]}"
+      exit 0
+    fi
+
+    exec "${EVAL_CMD[@]}" ;;
   update)
     echo "Updating peon-ping..."
     # Migrate config keys (active_pack → default_pack, agentskill → session_override)
@@ -4163,6 +4236,7 @@ Commands:
   preview --list       List all categories and sound counts in the active pack
                        Categories: session.start, task.acknowledge, task.complete,
                        task.error, input.required, resource.limit, user.spam
+  eval <name-or-path>  Listen to and approve a draft pack (rerolls via your Claude Code)
   debug on             Enable debug logging
   debug off            Disable debug logging
   debug status         Show debug state, log directory, file count, total size

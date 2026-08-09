@@ -6551,3 +6551,33 @@ json.dump(cfg, open('$TEST_DIR/config.json', 'w'))
   [[ "$output" == *"sounds disable"* ]]
   [[ "$output" == *"sounds enable"* ]]
 }
+
+# ============================================================
+# eval (draft gate)
+# ============================================================
+
+@test "peon eval re-drafts an installed pack and stamps it" {
+  mkdir -p "$TEST_DIR/packs/mypack/sounds"
+  echo '{"cesp_version":"1.0","name":"mypack","version":"1.0.0","categories":{}}' > "$TEST_DIR/packs/mypack/openpeon.json"
+  # eval-server.py is intentionally not resolved via the BASH_SOURCE fallback
+  # in test mode (PEON_TEST=1) — stage it under $PEON_DIR/scripts like other
+  # bundled-script tests do (see setup_pack_download_env).
+  mkdir -p "$TEST_DIR/scripts"
+  cp "$(dirname "$PEON_SH")/scripts/eval-server.py" "$TEST_DIR/scripts/eval-server.py"
+
+  local eval_home="$TEST_DIR/eval-home"
+  run env HOME="$eval_home" CLAUDE_PEON_DIR="$TEST_DIR" PEON_TEST=1 \
+    PEON_EVAL_NO_OPEN=1 PEON_EVAL_DRY_RUN=1 bash "$PEON_SH" eval mypack
+  [ "$status" -eq 0 ]
+  [ -f "$eval_home/.peon-ping/drafts/mypack/openpeon.json" ]
+  grep -q x_openpeon_draft "$eval_home/.peon-ping/drafts/mypack/openpeon.json"
+  [[ "$output" == *"eval-server"* ]]
+}
+
+@test "peon eval errors on unknown name" {
+  local eval_home="$TEST_DIR/eval-home-unknown"
+  run env HOME="$eval_home" CLAUDE_PEON_DIR="$TEST_DIR" PEON_TEST=1 \
+    bash "$PEON_SH" eval no-such-pack
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not found"* ]]
+}
