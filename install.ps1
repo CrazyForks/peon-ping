@@ -4155,7 +4155,7 @@ $skillsSourceDir = Join-Path $ScriptDir "skills"
 $skillsTargetDir = Join-Path $ClaudeDir "skills"
 New-Item -ItemType Directory -Path $skillsTargetDir -Force | Out-Null
 
-$skillNames = @("peon-ping-toggle", "peon-ping-config", "peon-ping-use", "peon-ping-log")
+$skillNames = @("peon-ping-toggle", "peon-ping-config", "peon-ping-use", "peon-ping-log", "peon-ping-remix")
 
 if (Test-Path $skillsSourceDir) {
     # Local install: copy from repo
