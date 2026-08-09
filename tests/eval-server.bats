@@ -174,6 +174,7 @@ EOF
 
 @test "approve strips stamp, moves pack, shuts down" {
   APPROVED="$TMP/approved"
+  echo '[{"job":"seed"}]' > "$DRAFT/eval-log.json"
   # PEON_APPROVED_DIR must be in the SERVER's env, not just the test's — start a
   # dedicated server instance, following the pattern the failed-claude test uses.
   PEON_APPROVED_DIR="$APPROVED" python3 "$BATS_TEST_DIRNAME/../scripts/eval-server.py" \
@@ -188,6 +189,8 @@ EOF
   ! grep -q x_openpeon_draft "$APPROVED/testpack/openpeon.json"
   [ ! -d "$APPROVED/testpack/jobs" ]
   [ ! -f "$APPROVED/testpack/.eval-server.json" ]
+  [ -f "$APPROVED/testpack/eval-log.json" ]
+  grep -q '"job":"seed"' "$APPROVED/testpack/eval-log.json"
   [ ! -d "$DRAFT" ] || [ ! -f "$DRAFT/openpeon.json" ]
   sleep 1.5
   run curl -s -o /dev/null -w "%{http_code}" --max-time 2 "http://127.0.0.1:$PORT4/api/pack"
@@ -226,6 +229,9 @@ EOF
   [[ "$output" == "409" ]]
   grep -q '"error": "exists"' "$TMP/approve-exists.json"
   [ -d "$DRAFT" ]
+  # short-circuited before any mutation — draft's manifest and lockfile are untouched
+  grep -q x_openpeon_draft "$DRAFT/openpeon.json"
+  [ -f "$DRAFT/.eval-server.json" ]
   # server is still alive (not the shutdown path) — a normal GET still works
   run curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT6/api/pack"
   [[ "$output" == "200" ]]
