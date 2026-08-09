@@ -35,6 +35,40 @@ def shutdown_handler(signum, frame):
     if SERVER:
         threading.Thread(target=SERVER.shutdown).start()
 
+def broadcast(ev):
+    for q in list(EVENTS):
+        q.put(ev)
+
+def worker():
+    while True:
+        job_id, job = JOBS.get()
+        STATE["busy"] = True
+        broadcast({"type": "started", "job": job_id})
+        try:
+            jobs_dir = os.path.join(DRAFT, "jobs")
+            os.makedirs(jobs_dir, exist_ok=True)
+            job_path = os.path.join(jobs_dir, job_id + ".json")
+            with open(job_path, "w") as f:
+                json.dump(job, f, indent=1)
+            prompt = ("Use the peon-ping-remix skill to execute the reroll job at %s. "
+                      "Follow the skill exactly." % job_path)
+            try:
+                r = subprocess.run([CLAUDE_BIN, "-p", prompt], capture_output=True, text=True, timeout=1800)
+            except subprocess.TimeoutExpired as e:
+                detail = ((e.stderr or b"") if isinstance(e.stderr, (bytes, bytearray)) else (e.stderr or "")) or (e.stdout or "")
+                if isinstance(detail, (bytes, bytearray)):
+                    detail = detail.decode(errors="replace")
+                broadcast({"type": "failed", "job": job_id, "detail": (detail or "timed out")[-500:]})
+                continue
+            if r.returncode == 0:
+                broadcast({"type": "done", "job": job_id})
+            else:
+                broadcast({"type": "failed", "job": job_id, "detail": (r.stderr or r.stdout)[-500:]})
+        except Exception as e:
+            broadcast({"type": "failed", "job": job_id, "detail": str(e)[-500:]})
+        finally:
+            STATE["busy"] = False
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):  # quiet
         pass
@@ -48,7 +82,24 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _sse(self):
-        return self._json({"error": "not ready"}, 501)
+        q = queue.Queue()
+        EVENTS.append(q)
+        self.send_response(200)
+        self.send_header("content-type", "text/event-stream")
+        self.send_header("cache-control", "no-cache")
+        self.end_headers()
+        try:
+            while True:
+                try:
+                    ev = q.get(timeout=15)
+                    self.wfile.write(b"data: " + json.dumps(ev).encode() + b"\n\n")
+                except queue.Empty:
+                    self.wfile.write(b": keepalive\n\n")
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            EVENTS.remove(q)
 
     def do_GET(self):
         if self.path == "/api/pack":
@@ -84,7 +135,38 @@ class Handler(BaseHTTPRequestHandler):
         return self._json({"error": "not found"}, 404)
 
     def do_POST(self):
-        return self._json({"error": "not found"}, 404)  # replaced in Task 7/8
+        if self.path == "/api/reroll":
+            return self._reroll()
+        return self._json({"error": "not found"}, 404)  # replaced in Task 8
+
+    def _reroll(self):
+        length = int(self.headers.get("content-length", 0))
+        raw = self.rfile.read(length) if length else b""
+        try:
+            body = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            return self._json({"error": "invalid json"}, 400)
+        scope = body.get("scope")
+        if scope not in ("sound", "pack"):
+            return self._json({"error": "scope must be 'sound' or 'pack'"}, 400)
+        category = body.get("category")
+        index = body.get("index")
+        caption = body.get("caption")
+        if scope == "sound":
+            m = manifest()
+            cats = m.get("categories", {})
+            if category not in cats:
+                return self._json({"error": "unknown category"}, 400)
+            sounds = cats[category].get("sounds", [])
+            if not isinstance(index, int) or isinstance(index, bool) or index < 0 or index >= len(sounds):
+                return self._json({"error": "index out of range"}, 400)
+        if STATE["busy"]:
+            return self._json({"error": "busy"}, 409)
+        job_id = "%d" % int(time.time() * 1000)
+        job = {"scope": scope, "category": category, "index": index, "caption": caption,
+               "draft_dir": DRAFT, "pack_name": manifest().get("name")}
+        JOBS.put((job_id, job))
+        return self._json({"job": job_id}, 202)
 
 def main():
     global DRAFT, CLAUDE_BIN, SERVER
@@ -106,6 +188,7 @@ def main():
     with open(lock, "w") as f:
         json.dump({"port": port, "pid": os.getpid()}, f)
     signal.signal(signal.SIGTERM, shutdown_handler)
+    threading.Thread(target=worker, daemon=True).start()
     if args.print_port:
         print("PORT=%d" % port, flush=True)
     if not args.no_open:
