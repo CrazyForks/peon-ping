@@ -377,6 +377,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": "invalid pack name"}, 400)
             if os.path.exists(final):
                 return self._json({"error": "exists", "path": final}, 409)
+            # The manifest's `name` must match the validated/normalized value
+            # used for the write path, not whatever the draft author put in
+            # openpeon.json — otherwise directory identity and manifest
+            # identity diverge and a downstream consumer that joins manifest
+            # `name` to a path (registry publish, site tooling, `peon packs`)
+            # re-opens the traversal this normalization was meant to close.
+            m["name"] = name
             with open(os.path.join(DRAFT, "openpeon.json"), "w") as f:
                 json.dump(m, f, indent=2)
             shutil.rmtree(os.path.join(DRAFT, "jobs"), ignore_errors=True)

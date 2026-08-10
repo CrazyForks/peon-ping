@@ -1,12 +1,16 @@
 #!/usr/bin/env bats
 # NOTE on assertion style: this machine's bash (3.2, macOS system bash, which
-# `env bash` resolves to and which bats-core therefore runs tests under) does
-# NOT trip bats' errexit/ERR trap on a failing bare `[[ ... ]]` compound
-# command — verified empirically (a bare `[[ "$output" == *pat* ]]` that
-# should fail a test silently reports `ok`). `[ ... ]` (single bracket, a
-# POSIX simple command) and `grep -q` DO correctly fail the test. Every
-# load-bearing assertion below therefore uses `[ ]` or `grep -q`, never a
-# bare `[[ ]]` as the only guard for something that must be caught.
+# `env bash` resolves to and which bats-core therefore runs tests under) has
+# an ERR trap that does NOT fire for a failing bare `[[ ... ]]` compound
+# command — verified empirically. A failing bare `[[ ... ]]` DOES still fail
+# the test when it is the LAST statement in the test body (bats checks the
+# body's own exit status there), but a failing bare `[[ ... ]]` ANYWHERE ELSE
+# in the body silently does NOT gate the test — it reports `ok` regardless.
+# `[ ... ]` (single bracket, a POSIX simple command), `grep -q`, and `false`
+# DO correctly fail the test in BOTH positions. Every load-bearing assertion
+# below therefore uses `[ ]` or `grep -q` when it is not the final statement,
+# never a non-final bare `[[ ]]` as the only guard for something that must be
+# caught.
 
 setup() {
   TMP="$(mktemp -d)"
@@ -193,6 +197,36 @@ json.dump(m, open(p, 'w'))
     [ "$output" != "200" ]
   fi
   kill "$SVB2A" 2>/dev/null || true
+}
+
+@test "B2: approve with name=../victim/pwned normalizes the manifest's own name field too, not just the write path" {
+  # Proven live: the write path was safely re-derived from the draft dir's
+  # basename, but the manifest written to openpeon.json still carried the
+  # attacker's original '../victim/pwned' name — directory identity and
+  # manifest identity diverged. Fix: the manifest's name field must equal
+  # the same normalized value used for the path.
+  APPROVED="$TMP/approved"
+  python3 -c "
+import json
+p = '$DRAFT/openpeon.json'
+m = json.load(open(p))
+m['name'] = '../victim/pwned'
+json.dump(m, open(p, 'w'))
+"
+  PEON_APPROVED_DIR="$APPROVED" python3 "$BATS_TEST_DIRNAME/../scripts/eval-server.py" \
+      --draft "$DRAFT" --claude-bin "$TMP/fake-claude" --no-open --print-port > "$TMP/portB2m.txt" &
+  SVB2M=$!
+  for _ in $(seq 1 50); do grep -q PORT= "$TMP/portB2m.txt" 2>/dev/null && break; sleep 0.1; done
+  PB2M="$(sed -n 's/^PORT=//p' "$TMP/portB2m.txt")"
+  TB2M="$(python3 -c "import json; print(json.load(open('$DRAFT/.eval-server.json'))['token'])")"
+  run curl -s -o "$TMP/b2m.out" -w "%{http_code}" -X POST -H "X-Eval-Token: $TB2M" -H "content-type: application/json" \
+      -d '{"install":false}' "http://127.0.0.1:$PB2M/api/approve"
+  [ "$output" = "200" ]
+  approved_path="$(python3 -c "import json; print(json.load(open('$TMP/b2m.out'))['approved'])")"
+  manifest_name="$(python3 -c "import json; print(json.load(open('$approved_path/openpeon.json'))['name'])")"
+  [ "$manifest_name" != "../victim/pwned" ]
+  [ "$manifest_name" = "draft" ]
+  kill "$SVB2M" 2>/dev/null || true
 }
 
 @test "B2: approve with name=/abs/path/ESCAPE (absolute path) never relocates the pack to that absolute path" {

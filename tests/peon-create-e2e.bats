@@ -41,11 +41,14 @@ teardown() {
   # command line printed by the eval path must be the real eval-server
   # invocation targeting THIS draft.
   # NOTE: uses `grep -q`, not a bare `[[ ... ]]` — this machine's bash (3.2,
-  # macOS system bash) does not trip bats' errexit/ERR trap on a failing bare
-  # `[[ ]]`, so a bare `[[ "$output" == *pat* ]]` here would silently never
-  # gate the test. Verified empirically: mutating a passing bats test to a
-  # failing bare-`[[ ]]` condition still reports `ok`. `grep -q` is a real
-  # external/simple command, so its failure correctly fails the test.
+  # macOS system bash)'s ERR trap does not fire for a failing bare `[[ ]]`.
+  # A bare `[[ "$output" == *pat* ]]` here is NOT the last statement in this
+  # test body, so a failing one would silently never gate the test (bats only
+  # catches a non-final bare `[[ ]]` failure when it's the body's last
+  # statement). Verified empirically: mutating this to a failing non-final
+  # bare-`[[ ]]` condition still reports `ok`. `grep -q` is a real
+  # external/simple command, so its failure correctly fails the test in
+  # either position.
   printf '%s' "$output" | grep -q "eval-server.py"
   printf '%s' "$output" | grep -q "drafts/calmtest"
 

@@ -3969,7 +3969,7 @@ for i, s in enumerate(sounds):
     [ -n "$CREATE_DRAFT_ROOT" ] && mkdir -p "$CREATE_DRAFT_ROOT" 2>/dev/null
     [ -n "$CREATE_DRAFT_ROOT" ] && [ -d "$CREATE_DRAFT_ROOT" ] && CREATE_ADD_DIRS+=(--add-dir "$CREATE_DRAFT_ROOT")
     [ -n "$PEON_DIR" ] && [ -d "$PEON_DIR" ] && CREATE_ADD_DIRS+=(--add-dir "$PEON_DIR")
-    "$CREATE_CLAUDE_BIN" "${CREATE_ADD_DIRS[@]}" -p "$CREATE_PROMPT"
+    "$CREATE_CLAUDE_BIN" "${CREATE_ADD_DIRS[@]+"${CREATE_ADD_DIRS[@]}"}" -p "$CREATE_PROMPT"
     CREATE_RC=$?
     if [ $CREATE_RC -ne 0 ]; then
       echo "Error: pack drafting failed (exit $CREATE_RC)." >&2
