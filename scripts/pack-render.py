@@ -53,6 +53,8 @@ def fetch_mp3(job, key, prompt_suffix=""):
         return resp.read()
 
 def to_wav(mp3_bytes, out_path):
+    """Convert mp3_bytes to a WAV at out_path. Callers pass a scratch temp path
+    here, never the real `out` — see the B4 fix in main()."""
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as t:
         t.write(mp3_bytes); mp3 = t.name
     try:
@@ -87,19 +89,32 @@ def main():
     if args.mock:
         write_mock(job["out"]); return
     key = read_api_key()
+    out_dir = os.path.dirname(os.path.abspath(job["out"])) or "."
     for suffix in ("", RETRY_SUFFIX):
         try:
             mp3_bytes = fetch_mp3(job, key, suffix if job["type"] == "sfx" else "")
         except urllib.error.URLError as e:
             sys.stderr.write("ElevenLabs request failed: %s\n" % e.reason)
             sys.exit(1)
+        # B4: render to a scratch temp file in the SAME directory as `out`, never
+        # `out` itself. A failed/silent take must never truncate or overwrite a
+        # previously-good WAV — only a passing render replaces it, atomically.
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".wav", dir=out_dir)
+        os.close(tmp_fd)
         try:
-            to_wav(mp3_bytes, job["out"])
-        except subprocess.CalledProcessError as e:
-            sys.stderr.write("ffmpeg conversion failed\n")
-            sys.exit(1)
-        if peak_db(job["out"]) >= SILENCE_DB:
-            return
+            try:
+                to_wav(mp3_bytes, tmp_path)
+            except subprocess.CalledProcessError:
+                sys.stderr.write("ffmpeg conversion failed\n")
+                sys.exit(1)
+            if peak_db(tmp_path) >= SILENCE_DB:
+                os.replace(tmp_path, job["out"])
+                return
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
         if job["type"] == "tts":
             break  # strengthened-prompt retry only makes sense for sfx
     sys.stderr.write("silent render after retry: %s\n" % job["out"])

@@ -73,3 +73,52 @@ if not exited_loudly:
 PYTHON
   [ "$status" -eq 0 ]
 }
+
+@test "B4: a failed ffmpeg conversion leaves the previous good WAV untouched" {
+  # Regression test for the proven bug: ffmpeg truncate-then-fail used to leave
+  # a 0-byte file where a good take had been, because to_wav() rendered
+  # straight into `out`. Fix: render into a same-dir temp file and os.replace()
+  # only on success.
+  mkdir -p "$TMP/bin"
+  cat > "$TMP/bin/ffmpeg" <<'FFMPEG'
+#!/bin/bash
+# Simulate the proven failure mode: truncate whatever output path it was given
+# (as real ffmpeg does immediately on invocation with -y), then fail.
+out="${@: -1}"
+: > "$out"
+exit 1
+FFMPEG
+  chmod +x "$TMP/bin/ffmpeg"
+
+  OUT="$TMP/good-take.wav"
+  printf 'GOOD-PREVIOUS-TAKE-88KB-STAND-IN' > "$OUT"
+  BEFORE_SHA="$(shasum "$OUT" | awk '{print $1}')"
+
+  cat > "$TMP/job.json" <<EOF
+{"type":"sfx","prompt":"a soft chime","out":"$OUT"}
+EOF
+
+  PATH="$TMP/bin:$PATH" run python3 - "$TMP/job.json" <<'PYTHON'
+import importlib.util, json, sys
+job_path = sys.argv[1]
+spec = importlib.util.spec_from_file_location("pack_render", "scripts/pack-render.py")
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+m.read_api_key = lambda: "fake-key"
+m.fetch_mp3 = lambda job, key, prompt_suffix="": b"not-really-an-mp3"
+sys.argv = ["pack-render.py", "--job", job_path]
+m.main()
+PYTHON
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ffmpeg conversion failed"* ]]
+
+  # The out path must be byte-identical to the pre-existing good take — never
+  # truncated, never touched by the failed conversion.
+  AFTER_SHA="$(shasum "$OUT" | awk '{print $1}')"
+  [ "$BEFORE_SHA" = "$AFTER_SHA" ]
+  [ "$(wc -c < "$OUT")" -gt 0 ]
+
+  # No leftover .wav temp file beside it either.
+  leftover="$(find "$TMP" -maxdepth 1 -name '*.wav' ! -name 'good-take.wav')"
+  [ -z "$leftover" ]
+}

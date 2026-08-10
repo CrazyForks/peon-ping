@@ -63,10 +63,12 @@ files. Exit.
    for sfx sounds, or `{"<file>": {"type": "tts", "text": "...", "voice_id":
    "..."}}` for voice sounds. Keys are the same `file` paths used in
    `openpeon.json` (relative to `draft_dir`, e.g. `sounds/session_start_0.wav`).
-6. Render every sound. For each entry, write a small job file (anywhere
-   inside `draft_dir`, e.g. `draft_dir/render-job.json`) shaped as
-   `{"type": "sfx"|"tts", "prompt"|"text"+"voice_id", "out": "<absolute path
-   to the WAV>"}`, then run:
+6. Render every sound. For each entry, write a small job file **under
+   `draft_dir/jobs/`** (e.g. `draft_dir/jobs/render-job-<category>_<index>.json`
+   — never at the draft root; `approve` prunes everything under `jobs/`, so a
+   render input left at the root would ship as junk in the approved pack)
+   shaped as `{"type": "sfx"|"tts", "prompt"|"text"+"voice_id", "out": "<absolute
+   path to the WAV>"}`, then run:
    ```
    python3 <peon-ping>/scripts/pack-render.py --job <file>
    ```

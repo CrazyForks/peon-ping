@@ -35,7 +35,10 @@ Do not touch any files. Exit.
    - sfx entries: rewrite `prompt`. tts entries: rewrite `text` (keep
      `voice_id` — never change a pack's voice in a reroll).
    - If the caption is empty, produce a fresh variation of the same idea.
-5. Render each target: write the new input as a job file and run
+5. Render each target: write the new input as a job file **under
+   `<draft_dir>/jobs/`** (e.g. `<draft_dir>/jobs/render-job-<category>_<index>.json`
+   — `approve` prunes everything under `jobs/`, so a render input left at the
+   draft root would ship as junk in the approved pack) and run
    `python3 <peon-ping>/scripts/pack-render.py --job <file>` with `out` set
    to the target WAV path (overwrite in place). The renderer exits nonzero
    on silent/failed renders — if it fails, STOP and exit nonzero yourself
@@ -55,6 +58,8 @@ Do not touch any files. Exit.
 
 - NEVER write outside `draft_dir`.
 - NEVER print or log the ElevenLabs key.
-- A failed render leaves the previous WAV in place — pack-render.py writes
-  to the out path only on success; do not delete a WAV before rendering.
+- A failed render leaves the previous WAV in place — pack-render.py renders
+  into a same-directory temp file and only replaces the out path (atomic
+  `os.replace`) on a successful, non-silent render; do not delete a WAV
+  before rendering.
 - Captions are the user's judgment. Honor them literally before creatively.
