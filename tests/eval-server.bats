@@ -513,6 +513,37 @@ EOF
   kill "$SERVER_PID5" 2>/dev/null || true
 }
 
+@test "R11: a failed install does not strand the request — approve still responds and shuts down" {
+  APPROVED="$TMP/approved"
+  # PEON_DIR points at a plain FILE, not a directory, so the install
+  # copytree's target creation is guaranteed to raise.
+  BROKEN_PEON_DIR="$TMP/not-a-dir"
+  echo "not a directory" > "$BROKEN_PEON_DIR"
+  PEON_APPROVED_DIR="$APPROVED" PEON_DIR="$BROKEN_PEON_DIR" \
+      python3 "$BATS_TEST_DIRNAME/../scripts/eval-server.py" \
+      --draft "$DRAFT" --claude-bin "$TMP/fake-claude" --no-open --print-port > "$TMP/portR11.txt" &
+  SVR11=$!
+  for _ in $(seq 1 50); do grep -q PORT= "$TMP/portR11.txt" 2>/dev/null && break; sleep 0.1; done
+  PR11="$(sed -n 's/^PORT=//p' "$TMP/portR11.txt")"
+  TR11="$(python3 -c "import json; print(json.load(open('$DRAFT/.eval-server.json'))['token'])")"
+  run curl -sf -o "$TMP/r11.out" -w "%{http_code}" -X POST -H "X-Eval-Token: $TR11" -H "content-type: application/json" \
+      -d '{"install":true}' "http://127.0.0.1:$PR11/api/approve"
+  # The move must have succeeded (draft gone, pack in the approved root) even
+  # though the install failed — and a real HTTP response must have been sent.
+  [ "$status" -eq 0 ]
+  [ "$output" = "200" ]
+  grep -q '"approved"' "$TMP/r11.out"
+  grep -q '"installed": false' "$TMP/r11.out"
+  grep -q '"install_error"' "$TMP/r11.out"
+  [ -f "$APPROVED/testpack/openpeon.json" ]
+  [ ! -d "$DRAFT" ]
+  # Server must still self-shut-down normally (not left hanging on a crash).
+  sleep 1.5
+  run curl -s -o /dev/null -w "%{http_code}" --max-time 2 -H "X-Eval-Token: $TR11" "http://127.0.0.1:$PR11/api/pack"
+  [ "$output" != "200" ]
+  kill "$SVR11" 2>/dev/null || true
+}
+
 @test "approve returns 409 exists when the target already exists" {
   APPROVED="$TMP/approved"
   mkdir -p "$APPROVED/testpack"
