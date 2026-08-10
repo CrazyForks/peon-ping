@@ -1733,6 +1733,17 @@ json.dump(cfg, open('$TEST_DIR/config.json', 'w'))
   [ "$active" = "peon" ]
 }
 
+@test "packs use refuses a draft-stamped pack" {
+  mkdir -p "$TEST_DIR/packs/draftling/sounds"
+  cat > "$TEST_DIR/packs/draftling/openpeon.json" <<'EOF'
+{"cesp_version":"1.0","name":"draftling","version":"0.0.1","x_openpeon_draft":true,"categories":{}}
+EOF
+  run bash "$PEON_SH" packs use draftling
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"unapproved draft"* ]]
+  [[ "$output" == *"peon eval draftling"* ]]
+}
+
 # ============================================================
 # packs use --install
 # ============================================================
@@ -6539,4 +6550,173 @@ json.dump(cfg, open('$TEST_DIR/config.json', 'w'))
   [[ "$output" == *"sounds list"* ]]
   [[ "$output" == *"sounds disable"* ]]
   [[ "$output" == *"sounds enable"* ]]
+}
+
+# ============================================================
+# create (B7: flag-parsing must never spin)
+# ============================================================
+# No `timeout`/`gtimeout` binary is assumed to exist on the test machine, so
+# these use a portable background-process + poll-then-kill watchdog instead.
+
+@test "B7: peon create --name with no value exits fast instead of spinning forever" {
+  # --name must be the LAST arg so its case-match sees $# == 1 (no value
+  # follows) — this is exactly the proven repro: `shift 2` with only one
+  # positional arg left fails without shifting, so the parse loop never
+  # advances and spins on the same "$1" forever.
+  bash "$PEON_SH" create --flavor sfx --vibe test --name >"$TEST_DIR/b7-name.out" 2>&1 &
+  local pid=$!
+  local waited=0
+  while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 30 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -9 "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+    echo "still spinning after 3s (B7 regression: infinite loop on --name with no value)" >&2
+    false
+  fi
+  local rc=0
+  wait "$pid" || rc=$?
+  [ "$rc" -ne 0 ]
+  grep -q "needs a value" "$TEST_DIR/b7-name.out"
+}
+
+@test "B7: peon create --flavor with no value exits fast instead of spinning forever" {
+  bash "$PEON_SH" create --name x --flavor >"$TEST_DIR/b7-flavor.out" 2>&1 &
+  local pid=$!
+  local waited=0
+  while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 30 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -9 "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+    echo "still spinning after 3s (B7 regression: infinite loop on --flavor with no value)" >&2
+    false
+  fi
+  local rc=0
+  wait "$pid" || rc=$?
+  [ "$rc" -ne 0 ]
+  grep -q "needs a value" "$TEST_DIR/b7-flavor.out"
+}
+
+@test "B7: peon create --vibe with no value exits fast instead of spinning forever" {
+  bash "$PEON_SH" create --name x --flavor sfx --vibe >"$TEST_DIR/b7-vibe.out" 2>&1 &
+  local pid=$!
+  local waited=0
+  while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 30 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -9 "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+    echo "still spinning after 3s (B7 regression: infinite loop on --vibe with no value)" >&2
+    false
+  fi
+  local rc=0
+  wait "$pid" || rc=$?
+  [ "$rc" -ne 0 ]
+  grep -q "needs a value" "$TEST_DIR/b7-vibe.out"
+}
+
+# ============================================================
+# eval (draft gate)
+# ============================================================
+
+@test "peon eval re-drafts an installed pack and stamps it" {
+  mkdir -p "$TEST_DIR/packs/mypack/sounds"
+  echo '{"cesp_version":"1.0","name":"mypack","version":"1.0.0","categories":{}}' > "$TEST_DIR/packs/mypack/openpeon.json"
+  # eval-server.py is intentionally not resolved via the BASH_SOURCE fallback
+  # in test mode (PEON_TEST=1) — stage it under $PEON_DIR/scripts like other
+  # bundled-script tests do (see setup_pack_download_env).
+  mkdir -p "$TEST_DIR/scripts"
+  cp "$(dirname "$PEON_SH")/scripts/eval-server.py" "$TEST_DIR/scripts/eval-server.py"
+
+  local eval_home="$TEST_DIR/eval-home"
+  run env HOME="$eval_home" CLAUDE_PEON_DIR="$TEST_DIR" PEON_TEST=1 \
+    PEON_EVAL_NO_OPEN=1 PEON_EVAL_DRY_RUN=1 bash "$PEON_SH" eval mypack
+  [ "$status" -eq 0 ]
+  [ -f "$eval_home/.peon-ping/drafts/mypack/openpeon.json" ]
+  grep -q x_openpeon_draft "$eval_home/.peon-ping/drafts/mypack/openpeon.json"
+  [[ "$output" == *"eval-server"* ]]
+  # R10: the installed pack had no prompts.json, so a stub must be synthesized
+  # (one entry per sound file) — otherwise every reroll on this re-drafted
+  # pack fails mid-job because peon-ping-remix has nothing to read.
+  [ -f "$eval_home/.peon-ping/drafts/mypack/prompts.json" ]
+}
+
+@test "peon eval re-draft (R10) synthesizes a stub prompts.json entry per sound with no prompt on file" {
+  mkdir -p "$TEST_DIR/packs/promptless/sounds"
+  cat > "$TEST_DIR/packs/promptless/openpeon.json" <<'EOF'
+{"cesp_version":"1.0","name":"promptless","version":"1.0.0",
+ "categories":{"task.complete":{"sounds":[{"file":"sounds/done.wav","label":"Soft chime"}]}}}
+EOF
+  mkdir -p "$TEST_DIR/scripts"
+  cp "$(dirname "$PEON_SH")/scripts/eval-server.py" "$TEST_DIR/scripts/eval-server.py"
+
+  local eval_home="$TEST_DIR/eval-home-promptless"
+  run env HOME="$eval_home" CLAUDE_PEON_DIR="$TEST_DIR" PEON_TEST=1 \
+    PEON_EVAL_NO_OPEN=1 PEON_EVAL_DRY_RUN=1 bash "$PEON_SH" eval promptless
+  [ "$status" -eq 0 ]
+  local prompts="$eval_home/.peon-ping/drafts/promptless/prompts.json"
+  [ -f "$prompts" ]
+  grep -q "sounds/done.wav" "$prompts"
+  grep -q "no prompt on file" "$prompts"
+  grep -q '"type": "sfx"' "$prompts"
+}
+
+@test "peon eval re-draft (R12) honors PEON_CLAUDE_BIN on the eval-server invocation" {
+  mkdir -p "$TEST_DIR/packs/mypack2/sounds"
+  echo '{"cesp_version":"1.0","name":"mypack2","version":"1.0.0","categories":{}}' > "$TEST_DIR/packs/mypack2/openpeon.json"
+  mkdir -p "$TEST_DIR/scripts"
+  cp "$(dirname "$PEON_SH")/scripts/eval-server.py" "$TEST_DIR/scripts/eval-server.py"
+
+  local eval_home="$TEST_DIR/eval-home2"
+  run env HOME="$eval_home" CLAUDE_PEON_DIR="$TEST_DIR" PEON_TEST=1 PEON_CLAUDE_BIN=/usr/bin/true \
+    PEON_EVAL_NO_OPEN=1 PEON_EVAL_DRY_RUN=1 bash "$PEON_SH" eval mypack2
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" | grep -q -- "--claude-bin /usr/bin/true"
+}
+
+@test "peon eval on a bare foreign directory (B5b) copies + stamps into drafts, never evals in place" {
+  mkdir -p "$TEST_DIR/foreign/somepack/sounds"
+  echo '{"cesp_version":"1.0","name":"somepack","version":"1.0.0","categories":{}}' > "$TEST_DIR/foreign/somepack/openpeon.json"
+  mkdir -p "$TEST_DIR/scripts"
+  cp "$(dirname "$PEON_SH")/scripts/eval-server.py" "$TEST_DIR/scripts/eval-server.py"
+
+  local eval_home="$TEST_DIR/eval-home3"
+  run env HOME="$eval_home" CLAUDE_PEON_DIR="$TEST_DIR" PEON_TEST=1 \
+    PEON_EVAL_NO_OPEN=1 PEON_EVAL_DRY_RUN=1 bash "$PEON_SH" eval "$TEST_DIR/foreign/somepack"
+  [ "$status" -eq 0 ]
+  # The draft must land under the drafts root, stamped — never evaluated at
+  # the foreign path itself (an approve on that path would shutil.move it OUT
+  # of wherever it started, e.g. out of an installed packs/ tree).
+  [ -f "$eval_home/.peon-ping/drafts/somepack/openpeon.json" ]
+  grep -q x_openpeon_draft "$eval_home/.peon-ping/drafts/somepack/openpeon.json"
+  [ ! -f "$TEST_DIR/foreign/somepack/.eval-server.json" ]
+  printf '%s' "$output" | grep -q "drafts/somepack"
+}
+
+@test "peon eval on a directory already inside the drafts root evals it in place (no copy)" {
+  mkdir -p "$TEST_DIR/scripts"
+  cp "$(dirname "$PEON_SH")/scripts/eval-server.py" "$TEST_DIR/scripts/eval-server.py"
+  local eval_home="$TEST_DIR/eval-home4"
+  mkdir -p "$eval_home/.peon-ping/drafts/already/sounds"
+  echo '{"cesp_version":"1.0","name":"already","version":"1.0.0","x_openpeon_draft":true,"categories":{}}' \
+    > "$eval_home/.peon-ping/drafts/already/openpeon.json"
+  run env HOME="$eval_home" CLAUDE_PEON_DIR="$TEST_DIR" PEON_TEST=1 \
+    PEON_EVAL_NO_OPEN=1 PEON_EVAL_DRY_RUN=1 bash "$PEON_SH" eval "$eval_home/.peon-ping/drafts/already"
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" | grep -q "drafts/already"
+}
+
+@test "peon eval errors on unknown name" {
+  local eval_home="$TEST_DIR/eval-home-unknown"
+  run env HOME="$eval_home" CLAUDE_PEON_DIR="$TEST_DIR" PEON_TEST=1 \
+    bash "$PEON_SH" eval no-such-pack
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not found"* ]]
 }

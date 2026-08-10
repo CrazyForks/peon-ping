@@ -632,6 +632,7 @@ if [ -n "$SCRIPT_DIR" ]; then
     cp "$SCRIPT_DIR/scripts/"*.sh "$INSTALL_DIR/scripts/" 2>/dev/null || true
     cp "$SCRIPT_DIR/scripts/"*.ps1 "$INSTALL_DIR/scripts/" 2>/dev/null || true
     cp "$SCRIPT_DIR/scripts/"*.py "$INSTALL_DIR/scripts/" 2>/dev/null || true
+    cp "$SCRIPT_DIR/scripts/"*.html "$INSTALL_DIR/scripts/" 2>/dev/null || true
     cp "$SCRIPT_DIR/scripts/"*.swift "$INSTALL_DIR/scripts/" 2>/dev/null || true
     cp "$SCRIPT_DIR/scripts/"*.js "$INSTALL_DIR/scripts/" 2>/dev/null || true
   fi
@@ -681,6 +682,9 @@ else
   curl -fsSL "$REPO_BASE/scripts/cmux-status-presentation.sh" -o "$INSTALL_DIR/scripts/cmux-status-presentation.sh" 2>/dev/null || true
   curl -fsSL "$REPO_BASE/scripts/cmux-workspace-field.sh" -o "$INSTALL_DIR/scripts/cmux-workspace-field.sh" 2>/dev/null || true
   curl -fsSL "$REPO_BASE/scripts/tts-native.sh" -o "$INSTALL_DIR/scripts/tts-native.sh" 2>/dev/null || true
+  curl -fsSL "$REPO_BASE/scripts/eval-server.py" -o "$INSTALL_DIR/scripts/eval-server.py" 2>/dev/null || true
+  curl -fsSL "$REPO_BASE/scripts/pack-render.py" -o "$INSTALL_DIR/scripts/pack-render.py" 2>/dev/null || true
+  curl -fsSL "$REPO_BASE/scripts/eval-ui.html" -o "$INSTALL_DIR/scripts/eval-ui.html" 2>/dev/null || true
   mkdir -p "$INSTALL_DIR/docs"
   curl -fsSL "$REPO_BASE/docs/peon-icon.png" -o "$INSTALL_DIR/docs/peon-icon.png" 2>/dev/null || true
   if [ "$UPDATING" = false ]; then
@@ -873,6 +877,8 @@ install_skill peon-ping-toggle
 install_skill peon-ping-config
 install_skill peon-ping-use
 install_skill peon-ping-log
+install_skill peon-ping-remix
+install_skill peon-ping-create-pack
 
 # --- Install trainer voice packs ---
 TRAINER_DIR="$INSTALL_DIR/trainer"
