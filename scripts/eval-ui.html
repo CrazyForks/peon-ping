@@ -18,6 +18,7 @@
   .card-label { font-weight:600; }
   .card-file { color:var(--dim); font-size:.8rem; word-break:break-all; }
   .claude-note { color:var(--warn); font-size:.85rem; margin:-1rem 0 1.5rem; }
+  .prompts-note { color:var(--dim); font-size:.8rem; margin:.35rem 0 0; }
   .success { max-width:36rem; }
   .success .path { color:var(--dim); word-break:break-all; }
   .success code { background:var(--card); padding:.15rem .4rem; border-radius:4px; }
@@ -30,6 +31,9 @@
 </div>
 <div id="claude-note" class="claude-note" style="display:none">
   Rerolls need Claude Code on your PATH — install: https://claude.com/claude-code
+</div>
+<div id="prompts-note" class="prompts-note" style="display:none">
+  No saved prompts for this pack — rerolls will write a fresh prompt from the sound's label instead of refining the original.
 </div>
 <div id="pack-caption" class="caption-box">
   <input type="text" id="pack-caption-text" placeholder="why? e.g. all a bit too busy, want softer">
@@ -55,7 +59,10 @@
    - 409 busy responses: show #status "one reroll at a time".
    - If /api/pack reports claude_available:false, disable every reroll button
      and show an inline note: "Rerolls need Claude Code on your PATH —
-     install: https://claude.com/claude-code". Listening + Approve still work. */
+     install: https://claude.com/claude-code". Listening + Approve still work.
+   - Auth (B1): every /api/* fetch sends the token from this page's own URL
+     (?t=<token>) as the X-Eval-Token header; the EventSource URL appends
+     ?t=<token> as a query param since EventSource cannot set headers. */
 
 (function () {
   "use strict";
@@ -63,16 +70,31 @@
   var packData = null;       // last /api/pack response
   var pendingReroll = null;  // {category, index} for an in-flight scope:'sound' reroll, else null
   var eventSource = null;    // live SSE connection, closed on approve success
+  var evalToken = new URLSearchParams(location.search).get("t") || "";
 
   var packnameEl = document.getElementById("packname");
   var rerollPackBtn = document.getElementById("reroll-pack");
   var approveBtn = document.getElementById("approve");
   var claudeNoteEl = document.getElementById("claude-note");
+  var promptsNoteEl = document.getElementById("prompts-note");
   var packCaptionBox = document.getElementById("pack-caption");
   var packCaptionText = document.getElementById("pack-caption-text");
   var packCaptionGo = document.getElementById("pack-caption-go");
   var soundsEl = document.getElementById("sounds");
   var statusEl = document.getElementById("status");
+
+  // Every fetch to /api/* must carry the token — the server 403s otherwise.
+  function apiHeaders(extra) {
+    var headers = { "X-Eval-Token": evalToken };
+    if (extra) for (var k in extra) headers[k] = extra[k];
+    return headers;
+  }
+
+  // Appends the token as a query param to a same-origin API path — used for
+  // the EventSource URL, which cannot set custom headers.
+  function withToken(path) {
+    return path + (path.indexOf("?") === -1 ? "?" : "&") + "t=" + encodeURIComponent(evalToken);
+  }
 
   function basename(file) {
     return file.indexOf("sounds/") === 0 ? file.slice("sounds/".length) : file;
@@ -111,7 +133,7 @@
   function postReroll(payload) {
     return fetch("/api/reroll", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: apiHeaders({ "content-type": "application/json" }),
       body: JSON.stringify(payload)
     }).then(function (res) {
       if (res.status === 409) {
@@ -227,6 +249,7 @@
       });
     });
     applyClaudeAvailability(!!packData.claude_available);
+    promptsNoteEl.style.display = packData.prompts_present === false ? "block" : "none";
     if (packData.busy) {
       setBusy(true);
       statusShow("Rerolling — your Claude Code is working…");
@@ -234,7 +257,7 @@
   }
 
   function load() {
-    return fetch("/api/pack").then(function (res) { return res.json(); }).then(function (data) {
+    return fetch("/api/pack", { headers: apiHeaders() }).then(function (res) { return res.json(); }).then(function (data) {
       packData = data;
       render();
     });
@@ -272,7 +295,7 @@
     if (!confirm("Approve this pack?")) return;
     fetch("/api/approve", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: apiHeaders({ "content-type": "application/json" }),
       body: JSON.stringify({ install: true })
     }).then(function (res) {
       if (res.status === 409) {
@@ -296,7 +319,7 @@
   }
 
   function connectEvents() {
-    eventSource = new EventSource("/api/events");
+    eventSource = new EventSource(withToken("/api/events"));
     eventSource.onmessage = function (ev) {
       var data;
       try { data = JSON.parse(ev.data); } catch (e) { return; }
@@ -328,7 +351,7 @@
     // fired in that gap would otherwise leave the UI stuck showing "Rerolling…" forever, so
     // resync busy state from the source of truth once per drop.
     eventSource.onerror = function () {
-      fetch("/api/pack").then(function (res) { return res.json(); }).then(function (data) {
+      fetch("/api/pack", { headers: apiHeaders() }).then(function (res) { return res.json(); }).then(function (data) {
         packData = data;
         render();
         if (!data.busy) {
