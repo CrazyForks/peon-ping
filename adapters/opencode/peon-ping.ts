@@ -62,6 +62,8 @@ export const PeonPingPlugin: Plugin = async ({ directory }) => {
   const cwd = directory || process.cwd()
   const sessionId = `oc-${Date.now()}`
   const subagentSessionIds = new Set<string>()
+  const busySessions = new Set<string>()
+  let lastSessionStart = 0
 
   function firePeon(event: string): void {
     const payload = JSON.stringify({
@@ -87,10 +89,7 @@ export const PeonPingPlugin: Plugin = async ({ directory }) => {
     return !!sid && subagentSessionIds.has(sid)
   }
 
-  setTimeout(() => {
-    setTabTitle(`${projectName}: ready`)
-    firePeon("SessionStart")
-  }, 100)
+  setTabTitle(`${projectName}: ready`)
 
   return {
     event: async ({ event }) => {
@@ -102,6 +101,7 @@ export const PeonPingPlugin: Plugin = async ({ directory }) => {
             break
           }
           setTabTitle(`${projectName}: ready`)
+          lastSessionStart = Date.now()
           firePeon("SessionStart")
           break
         }
@@ -121,6 +121,7 @@ export const PeonPingPlugin: Plugin = async ({ directory }) => {
         case "session.idle": {
           const sid = (event as any).properties?.sessionID
           if (isSubagent(sid)) break
+          if (sid) busySessions.delete(sid)
           setTabTitle(`\u25cf ${projectName}: done`)
           firePeon("Stop")
           break
@@ -129,6 +130,7 @@ export const PeonPingPlugin: Plugin = async ({ directory }) => {
         case "session.error": {
           const sid = (event as any).properties?.sessionID
           if (isSubagent(sid)) break
+          if (sid) busySessions.delete(sid)
           setTabTitle(`\u25cf ${projectName}: error`)
           firePeon("PostToolUseFailure")
           break
@@ -146,8 +148,15 @@ export const PeonPingPlugin: Plugin = async ({ directory }) => {
           const status = event.properties?.status
           const statusType = typeof status === "object" ? (status as any)?.type : status
           if (statusType === "busy" || statusType === "running") {
-            setTabTitle(`${projectName}: working`)
-            firePeon("UserPromptSubmit")
+            if (sid && !busySessions.has(sid)) {
+              busySessions.add(sid)
+              if (Date.now() - lastSessionStart > 3000) {
+                setTabTitle(`${projectName}: working`)
+                firePeon("UserPromptSubmit")
+              }
+            }
+          } else {
+            if (sid) busySessions.delete(sid)
           }
           break
         }
